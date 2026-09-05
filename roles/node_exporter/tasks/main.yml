@@ -1,0 +1,74 @@
+---
+# Preflight: node_exporter_textfile_dir has no role default on purpose — the
+# backup and proxmox_node roles write .prom files into the same directory and
+# read this one variable, so it is declared once in group_vars/all rather than
+# defaulted per role (a .prom file dropped anywhere else is silently never
+# scraped). See docs/inventory.md.
+- name: Assert the required node_exporter inventory variables are set
+  ansible.builtin.assert:
+    that:
+      - node_exporter_textfile_dir is defined
+    fail_msg: >-
+      Set node_exporter_textfile_dir in group_vars/all/main.yml (e.g.
+      /var/lib/node_exporter/textfile). The backup and proxmox_node roles
+      write their metrics there and read the same variable, so it is declared
+      once in the inventory. See docs/inventory.md.
+    quiet: true
+
+- name: Create node_exporter system user
+  ansible.builtin.user:
+    name: "{{ node_exporter_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Create node_exporter install directory
+  ansible.builtin.file:
+    path: "{{ node_exporter_install_dir }}/{{ node_exporter_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download and extract node_exporter
+  ansible.builtin.unarchive:
+    src: >-
+      https://github.com/prometheus/node_exporter/releases/download/{{ node_exporter_version }}/node_exporter-{{
+      node_exporter_version | regex_replace('^v', '') }}.linux-amd64.tar.gz
+    dest: "{{ node_exporter_install_dir }}/{{ node_exporter_version }}"
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+    creates: "{{ node_exporter_install_dir }}/{{ node_exporter_version }}/node_exporter"
+
+- name: Symlink node_exporter binary into PATH
+  ansible.builtin.file:
+    src: "{{ node_exporter_install_dir }}/{{ node_exporter_version }}/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    state: link
+    force: true
+  notify: Restart node_exporter
+
+# Root-owned on purpose: the writers (restic/backup scripts, SMART timer) run
+# as root; node_exporter only needs to read the .prom files (world-readable).
+- name: Create the textfile-collector directory
+  ansible.builtin.file:
+    path: "{{ node_exporter_textfile_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Template node_exporter systemd unit
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: Enable and start node_exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    state: started
+    enabled: true
+    daemon_reload: true

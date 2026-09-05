@@ -1,0 +1,17 @@
+---
+# Refresh the template catalog so `pveam download` knows the available versions.
+# Tolerant of a transient/offline failure (changed_when false) — a genuinely
+# missing template still surfaces as a clear error on the download below.
+- name: Refresh the appliance/template catalog
+  ansible.builtin.command:
+    cmd: pveam update
+  changed_when: false
+  failed_when: false
+
+- name: Download LXC OS templates
+  ansible.builtin.command:
+    cmd: "pveam download {{ item.storage }} {{ item.name }}"
+    creates: "{{ proxmox_node_template_cache }}/{{ item.name }}"
+  loop: "{{ proxmox_node_templates }}"
+  loop_control:
+    label: "{{ item.storage }}:{{ item.name }}"

@@ -1,0 +1,24 @@
+---
+# Ensure a scheduled vzdump backup job exists on the PVE cluster. Uses pvesh
+# (the supported API) rather than hand-editing /etc/pve/jobs.cfg, which the GUI
+# owns and may reformat. Create-only: we add the job if no job with our id
+# exists, and otherwise leave it untouched so GUI edits are preserved.
+- name: List existing PVE backup jobs
+  ansible.builtin.command: pvesh get /cluster/backup --output-format json
+  register: proxmox_backup_jobs
+  changed_when: false
+
+- name: Create the homelab vzdump backup job
+  ansible.builtin.command: >-
+    pvesh create /cluster/backup
+    --id {{ proxmox_backup_job_id }}
+    --schedule "{{ proxmox_backup_schedule }}"
+    --storage {{ proxmox_backup_storage }}
+    --mode {{ proxmox_backup_mode }}
+    --all 1
+    --prune-backups "{{ proxmox_backup_retention }}"
+    --enabled 1
+  changed_when: true
+  when: >-
+    proxmox_backup_job_id not in
+    (proxmox_backup_jobs.stdout | from_json | map(attribute='id') | list)

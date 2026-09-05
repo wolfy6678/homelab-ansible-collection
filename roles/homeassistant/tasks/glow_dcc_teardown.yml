@@ -1,0 +1,78 @@
+---
+# Mutual exclusivity (the other direction): when Mosquitto is the chosen Glow data
+# path, tear down the DCC/Bright-API integration so the same meter isn't ingested
+# twice. mosquitto_enabled wins over homeassistant_glow_dcc_enabled. Deleting the
+# config entry uses HA's REST API and the admin token a prior DCC setup required;
+# we only do it when the component is actually installed (nothing to remove
+# otherwise). Note: this leaves any Glow grid/gas sources on the Energy dashboard
+# referencing the now-removed entities — they are re-pointed when the MQTT route is
+# wired up (a deliberate follow-up).
+- name: Remove the Hildebrand Glow (DCC) integration (Mosquitto route in use)
+  when: mosquitto_enabled | default(false)
+  block:
+    - name: Check whether the Glow DCC component is installed
+      ansible.builtin.stat:
+        path: "{{ homeassistant_config_dir }}/custom_components/hildebrandglow_dcc"
+      register: homeassistant_glow_dcc_component
+
+    - name: Remove the Glow DCC config entry and component
+      when: homeassistant_glow_dcc_component.stat.exists
+      block:
+        # Drop the DCC grid/gas sources from the Energy dashboard first, while the
+        # entities still exist for discovery (deleting the config entry below
+        # removes them). Idempotent: a no-op once they're gone.
+        - name: Remove Glow DCC sources from the Energy dashboard
+          ansible.builtin.script:
+            cmd: manage_energy_dashboard.py
+            executable: "{{ homeassistant_venv_dir }}/bin/python3"
+          environment:
+            HASS_URL: "http://localhost:{{ homeassistant_port }}"
+            HASS_TOKEN: "{{ homeassistant_api_token }}"
+            ACTION: remove
+            DISCOVER_PLATFORM: hildebrandglow_dcc
+          register: homeassistant_glow_dcc_energy_remove
+          changed_when: "'CHANGED' in homeassistant_glow_dcc_energy_remove.stdout"
+          until: homeassistant_glow_dcc_energy_remove.rc == 0
+          retries: 10
+          delay: 3
+          no_log: true
+
+        - name: Wait for the HA API and fetch Glow DCC config entries to remove
+          ansible.builtin.uri:
+            url: "http://localhost:{{ homeassistant_port }}/api/config/config_entries/entry?domain=hildebrandglow_dcc"
+            headers:
+              Authorization: "Bearer {{ homeassistant_api_token }}"
+            status_code: [200, 401, 502, 503]
+          register: homeassistant_glow_dcc_remove_entries
+          retries: 30
+          delay: 2
+          # 401 is terminal (HA's API answers once auth is loaded, so it means a
+          # bad token, not "still starting") — stop retrying and let assert explain.
+          until: homeassistant_glow_dcc_remove_entries.status in [200, 401]
+          no_log: true
+
+        - name: Fail clearly if Home Assistant rejected the admin token
+          ansible.builtin.assert:
+            that: homeassistant_glow_dcc_remove_entries.status == 200
+            fail_msg: >-
+              Home Assistant returned 401 for homeassistant_api_token — it is missing,
+              invalid, or not an admin long-lived token. Create one under HA profile >
+              Security and set homeassistant_api_token (vault-encrypted).
+            quiet: true
+
+        - name: Delete the Glow DCC config entries
+          ansible.builtin.uri:
+            url: "http://localhost:{{ homeassistant_port }}/api/config/config_entries/entry/{{ item.entry_id }}"
+            method: DELETE
+            headers:
+              Authorization: "Bearer {{ homeassistant_api_token }}"
+          loop: "{{ homeassistant_glow_dcc_remove_entries.json }}"
+          loop_control:
+            label: "{{ item.entry_id }}"
+          no_log: true
+
+        - name: Remove the Glow DCC custom component
+          ansible.builtin.file:
+            path: "{{ homeassistant_config_dir }}/custom_components/hildebrandglow_dcc"
+            state: absent
+          notify: Restart homeassistant

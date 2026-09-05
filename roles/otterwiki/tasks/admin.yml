@@ -1,0 +1,33 @@
+---
+# Runs inside the venv against OtterWiki's own models; creates the user only
+# if absent.  no_log because the password is passed via the environment — on
+# failure re-run with no_log commented out to see the error.
+- name: Create admin user
+  ansible.builtin.script:
+    cmd: create_admin.py
+    executable: "{{ otterwiki_venv_dir }}/bin/python3"
+  environment:
+    OTTERWIKI_SETTINGS: "{{ otterwiki_config_dir }}/settings.cfg"
+    OTTERWIKI_ADMIN_NAME: "{{ otterwiki_admin_name }}"
+    OTTERWIKI_ADMIN_EMAIL: "{{ otterwiki_admin_email }}"
+    OTTERWIKI_ADMIN_PASSWORD: "{{ otterwiki_admin_password }}"
+  become: true
+  become_user: "{{ otterwiki_user }}"
+  register: otterwiki_admin_user
+  changed_when: "'created' in otterwiki_admin_user.stdout"
+  no_log: true
+
+# OtterWiki's auto-push only fires on wiki edits — this seeds the mirror with
+# the existing content at deploy time and fails the play if the deploy key or
+# URL is wrong (auto-push failures are otherwise only visible in the log).
+- name: Push wiki content to the external git remote
+  ansible.builtin.script:
+    cmd: push_remote.py
+    executable: "{{ otterwiki_venv_dir }}/bin/python3"
+  environment:
+    OTTERWIKI_SETTINGS: "{{ otterwiki_config_dir }}/settings.cfg"
+  become: true
+  become_user: "{{ otterwiki_user }}"
+  register: otterwiki_git_push
+  changed_when: "'Everything up-to-date' not in otterwiki_git_push.stdout"
+  when: otterwiki_git_push_url is defined

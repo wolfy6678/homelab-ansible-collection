@@ -1,0 +1,69 @@
+---
+# Waits for the API to come up AND determines whether the first-run wizard is
+# still open: /Startup endpoints allow anonymous access (with a MediaBrowser
+# client identity header) until the wizard is complete, then return 401.
+# Don't gate on StartupWizardCompleted from /System/Info/Public instead — that
+# field is omitted from the payload while the server is still warming up.
+- name: Wait for the Jellyfin API and probe the wizard state
+  ansible.builtin.uri:
+    url: "http://localhost:{{ jellyfin_port }}/Startup/Configuration"
+    status_code:
+      - 200
+      - 401
+    headers:
+      Authorization: 'MediaBrowser Client="ansible", Device="ansible", DeviceId="ansible", Version="1.0"'
+  register: jellyfin_startup_probe
+  retries: 30
+  delay: 2
+  until: jellyfin_startup_probe.status in [200, 401]
+
+- name: Run the first-time setup wizard
+  when: jellyfin_startup_probe.status == 200
+  module_defaults:
+    ansible.builtin.uri:
+      headers:
+        Authorization: 'MediaBrowser Client="ansible", Device="ansible", DeviceId="ansible", Version="1.0"'
+  block:
+    - name: Set wizard locale configuration
+      ansible.builtin.uri:
+        url: "http://localhost:{{ jellyfin_port }}/Startup/Configuration"
+        method: POST
+        body_format: json
+        body:
+          UICulture: "{{ jellyfin_ui_culture }}"
+          MetadataCountryCode: "{{ jellyfin_metadata_country }}"
+          PreferredMetadataLanguage: "{{ jellyfin_metadata_language }}"
+        status_code: 204
+
+    # Jellyfin requires a GET of /Startup/User to seed the default user
+    # before the POST below can update it
+    - name: Initialise the wizard user
+      ansible.builtin.uri:
+        url: "http://localhost:{{ jellyfin_port }}/Startup/User"
+
+    - name: Set admin username and password
+      ansible.builtin.uri:
+        url: "http://localhost:{{ jellyfin_port }}/Startup/User"
+        method: POST
+        body_format: json
+        body:
+          Name: "{{ jellyfin_admin_user }}"
+          Password: "{{ jellyfin_admin_password }}"
+        status_code: 204
+      no_log: true
+
+    - name: Configure remote access
+      ansible.builtin.uri:
+        url: "http://localhost:{{ jellyfin_port }}/Startup/RemoteAccess"
+        method: POST
+        body_format: json
+        body:
+          EnableRemoteAccess: true
+          EnableAutomaticPortMapping: false
+        status_code: 204
+
+    - name: Complete the wizard
+      ansible.builtin.uri:
+        url: "http://localhost:{{ jellyfin_port }}/Startup/Complete"
+        method: POST
+        status_code: 204

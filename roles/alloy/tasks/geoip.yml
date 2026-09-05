@@ -1,0 +1,40 @@
+---
+# Download the GeoIP City database (DB-IP City Lite by default — free, no key).
+# Idempotent: only fetched when the .mmdb is not already present. Bump/refresh by
+# deleting {{ alloy_geoip_db_path }} and re-running (DB-IP publishes monthly).
+- name: Check for an existing GeoIP database
+  ansible.builtin.stat:
+    path: "{{ alloy_geoip_db_path }}"
+  register: alloy_geoip_db
+
+- name: Provision the GeoIP database
+  when: not alloy_geoip_db.stat.exists
+  block:
+    - name: Create the GeoIP directory
+      ansible.builtin.file:
+        path: "{{ alloy_geoip_dir }}"
+        state: directory
+        owner: "{{ alloy_user }}"
+        group: "{{ alloy_user }}"
+        mode: "0755"
+
+    - name: Download the GeoIP database (current month)
+      ansible.builtin.get_url:
+        url: "{{ alloy_geoip_db_url }}"
+        dest: "{{ alloy_geoip_db_path }}.gz"
+        mode: "0644"
+      register: alloy_geoip_dl
+      failed_when: false
+
+    - name: Download the GeoIP database (previous-month fallback)
+      ansible.builtin.get_url:
+        url: "{{ alloy_geoip_db_url_prev }}"
+        dest: "{{ alloy_geoip_db_path }}.gz"
+        mode: "0644"
+      when: (alloy_geoip_dl.status_code | default(0)) != 200
+
+    - name: Decompress the GeoIP database
+      ansible.builtin.command:
+        cmd: "gunzip -f {{ alloy_geoip_db_path }}.gz"
+        creates: "{{ alloy_geoip_db_path }}"
+      notify: Restart alloy

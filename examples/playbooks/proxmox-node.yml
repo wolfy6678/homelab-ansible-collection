@@ -1,0 +1,10 @@
+---
+# Post-install configuration of the Proxmox VE host — the layer below the
+# containers: no-subscription apt repos and the LXC OS template, plus the opt-in
+# extras. Runs before provisioning so the template and repos exist when
+# Terraform runs. See docs/proxmox-node.md for the bare-metal seed this assumes.
+- name: Configure the Proxmox VE host (post-install)
+  hosts: proxmox
+  become: false # connecting as root@pam over SSH already
+  roles:
+    - homelab.core.proxmox_node

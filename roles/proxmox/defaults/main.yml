@@ -1,0 +1,25 @@
+---
+# Path to the Terraform root module that declares the LXC fleet, resolved
+# relative to the directory ansible-playbook is run from. The collection ships
+# only the reusable single-container module (terraform/modules/lxc); the root
+# module — provider credentials, the lxcs map and its site defaults, and the
+# state backend — belongs to the consuming repo, so point this at yours.
+proxmox_terraform_project_path: ../../terraform/
+
+# Scheduled Proxmox vzdump backups of all guests (container-level backups —
+# whole-LXC restore points). Disabled by default; turn on by setting
+# proxmox_backup_enabled: true and proxmox_backup_storage in group_vars/proxmox/
+# (see group_vars/proxmox/backup.yml). Managed via pvesh — the supported PVE
+# backup-job API — and create-only: to change schedule/retention later, delete
+# the job in Datacenter > Backup and re-run, or edit it in the GUI.
+proxmox_backup_enabled: false
+proxmox_backup_job_id: homelab-daily
+# systemd-calendar schedule (PVE format), e.g. "02:00" = daily at 02:00.
+proxmox_backup_schedule: "02:00"
+proxmox_backup_mode: snapshot
+# restic-style retention handled by PVE's prune-backups.
+proxmox_backup_retention: "keep-daily=7,keep-weekly=4"
+proxmox_backup_storage: >-
+  {{ undef(hint='Set proxmox_backup_storage to a backup-capable PVE storage ID
+  (an NFS/CIFS/PBS storage with the "VZDump backup file" content type) to enable
+  scheduled vzdump backups') }}

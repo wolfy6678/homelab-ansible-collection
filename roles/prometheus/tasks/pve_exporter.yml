@@ -1,0 +1,55 @@
+---
+# prometheus-pve-exporter exposes Proxmox API metrics (per-guest status, storage,
+# cluster) for Prometheus to scrape. Installed into a venv from PyPI; reads a
+# read-only API token from pve.yml. Prometheus passes the PVE host to query as a
+# `target` query param (see prometheus.yml.j2), so the exporter is a single
+# local service that fans out to the API.
+- name: Install venv tooling for pve-exporter
+  ansible.builtin.apt:
+    name:
+      - python3-venv
+      - python3-pip
+    state: present
+    update_cache: true
+
+- name: Install prometheus-pve-exporter into a venv
+  ansible.builtin.pip:
+    name: "prometheus-pve-exporter=={{ prometheus_pve_exporter_version }}"
+    virtualenv: "{{ prometheus_pve_exporter_venv }}"
+    virtualenv_command: python3 -m venv
+  notify: Restart pve-exporter
+
+# pve.yml.j2 splits the token id on '!' into user/token_name; a value without
+# '!' would raise an opaque Jinja IndexError at render time. Catch it here.
+- name: Validate the PVE API token id format
+  ansible.builtin.assert:
+    that: "'!' in prometheus_pve_token_id"
+    fail_msg: >-
+      prometheus_pve_token_id must be a full API token id of the form
+      'user@realm!tokenname' (e.g. api-monitoring@pam!pve-exporter); it has no '!'.
+      Set it in group_vars/monitoring/main.yml.
+    quiet: true
+
+- name: Template pve-exporter configuration
+  ansible.builtin.template:
+    src: pve.yml.j2
+    dest: "{{ prometheus_config_dir }}/pve.yml"
+    owner: root
+    group: "{{ prometheus_user }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart pve-exporter
+
+- name: Template pve-exporter systemd unit
+  ansible.builtin.template:
+    src: pve-exporter.service.j2
+    dest: /etc/systemd/system/pve-exporter.service
+    mode: "0644"
+  notify: Restart pve-exporter
+
+- name: Enable and start pve-exporter
+  ansible.builtin.systemd_service:
+    name: pve-exporter
+    state: started
+    enabled: true
+    daemon_reload: true

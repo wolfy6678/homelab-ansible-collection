@@ -1,0 +1,111 @@
+---
+# Preflight: alloy_loki_push_url defaults to the monitoring host's Loki, derived
+# from the inventory, and renders empty when there is no `monitoring` group.
+# There is no sensible fallback for "where do logs go", so fail here with an
+# instruction rather than shipping a config that points at nothing.
+- name: Assert alloy has somewhere to push logs
+  ansible.builtin.assert:
+    that:
+      - alloy_loki_push_url | length > 0
+    fail_msg: >-
+      alloy has no Loki endpoint. Either put the host running homelab.core.loki
+      in a `monitoring` inventory group (the default derives the push URL from
+      it), or set alloy_loki_push_url explicitly in group_vars. See
+      docs/inventory.md.
+    quiet: true
+
+# systemd-journal group membership lets the journal pipeline read the local
+# journal (a no-op for the syslog pipeline). Group changes only take effect at
+# process start, hence the notify.
+- name: Create alloy system user
+  ansible.builtin.user:
+    name: "{{ alloy_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+    groups: "{{ ['systemd-journal'] if alloy_journal_enabled | bool else [] }}"
+    append: true
+  notify: Restart alloy
+
+- name: Install unzip (needed to extract the Alloy release zip)
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create alloy directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: "{{ alloy_install_dir }}/{{ alloy_version }}", owner: root }
+    - { path: "{{ alloy_config_dir }}", owner: root }
+    - { path: "{{ alloy_data_dir }}", owner: "{{ alloy_user }}" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Download and extract Alloy
+  ansible.builtin.unarchive:
+    src: "https://github.com/grafana/alloy/releases/download/{{ alloy_version }}/alloy-linux-amd64.zip"
+    dest: "{{ alloy_install_dir }}/{{ alloy_version }}"
+    remote_src: true
+    creates: "{{ alloy_install_dir }}/{{ alloy_version }}/alloy-linux-amd64"
+
+# Grafana's Alloy release zip stores the binary without the execute bit (unlike
+# Loki's), so unzip extracts it 0644 and systemd fails with 203/EXEC. Force it.
+- name: Ensure the alloy binary is executable
+  ansible.builtin.file:
+    path: "{{ alloy_install_dir }}/{{ alloy_version }}/alloy-linux-amd64"
+    mode: "0755"
+  notify: Restart alloy
+
+- name: Symlink alloy binary into PATH
+  ansible.builtin.file:
+    src: "{{ alloy_install_dir }}/{{ alloy_version }}/alloy-linux-amd64"
+    dest: /usr/local/bin/alloy
+    state: link
+    force: true
+  notify: Restart alloy
+
+- name: Set up the GeoIP database
+  ansible.builtin.import_tasks: geoip.yml
+  when: alloy_geoip_enabled | bool
+
+- name: Template Alloy configuration
+  ansible.builtin.template:
+    src: config.alloy.j2
+    dest: "{{ alloy_config_dir }}/config.alloy"
+    owner: root
+    group: "{{ alloy_user }}"
+    mode: "0640"
+  notify: Restart alloy
+
+- name: Template Alloy systemd unit
+  ansible.builtin.template:
+    src: alloy.service.j2
+    dest: /etc/systemd/system/alloy.service
+    mode: "0644"
+  notify: Restart alloy
+
+- name: Enable and start Alloy
+  ansible.builtin.systemd_service:
+    name: alloy
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Flush handlers so Alloy is (re)started before the readiness check
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Alloy to become ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ alloy_http_port }}/-/ready"
+    status_code: [200]
+  register: alloy_ready
+  retries: 20
+  delay: 3
+  until: alloy_ready.status == 200

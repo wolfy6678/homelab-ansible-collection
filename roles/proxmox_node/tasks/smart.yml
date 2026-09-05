@@ -1,0 +1,44 @@
+---
+# SMART disk-health metrics for the PVE host's physical disks: smartmontools +
+# a python script (files/smart_metrics.py) run by a systemd timer, writing
+# smartmon_* gauges into node_exporter's textfile-collector directory. The
+# node_exporter role (targeting lxc:proxmox) scrapes
+# them off the host; they drive the SMART row on the "Proxmox" Grafana
+# dashboard and the disk-health alert.
+- name: Install smartmontools
+  ansible.builtin.apt:
+    name: smartmontools
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install the SMART metrics script
+  ansible.builtin.copy:
+    src: smart_metrics.py
+    dest: /usr/local/bin/smart-metrics
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Template the SMART metrics service
+  ansible.builtin.template:
+    src: smart-metrics.service.j2
+    dest: /etc/systemd/system/smart-metrics.service
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Template the SMART metrics timer
+  ansible.builtin.template:
+    src: smart-metrics.timer.j2
+    dest: /etc/systemd/system/smart-metrics.timer
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable and start the SMART metrics timer
+  ansible.builtin.systemd_service:
+    name: smart-metrics.timer
+    state: started
+    enabled: true
+    daemon_reload: true

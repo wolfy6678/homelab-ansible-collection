@@ -1,0 +1,32 @@
+---
+# Opt-in: pushes a compact homelab infra-health summary to a private TRMNL
+# e-ink plugin. Outbound-only (POST to the TRMNL cloud), so Prometheus/Grafana
+# stay LAN-only. A no-op until enabled AND a webhook UUID is set.
+monitoring_trmnl_enabled: false
+
+# Private-plugin webhook UUID (the trailing id of the plugin's Webhook URL in
+# the TRMNL dashboard). The only credential — vault-encrypt it in
+# group_vars/monitoring/main.yml.
+monitoring_trmnl_webhook_uuid: >-
+  {{ undef(hint='Set monitoring_trmnl_webhook_uuid to your TRMNL private-plugin
+  webhook UUID (the id after /custom_plugins/ in the plugin Webhook URL),
+  vault-encrypted in group_vars/monitoring/main.yml') }}
+
+# TRMNL API base. Override for a self-hosted / BYOS server.
+monitoring_trmnl_base_url: https://trmnl.com
+
+# Metrics source. Prometheus is local on the monitoring LXC.
+monitoring_trmnl_prometheus_url: http://localhost:9090
+# node_exporter scrape job whose per-instance metrics are summarised.
+monitoring_trmnl_node_job: node
+
+# Push cadence (systemd OnCalendar). TRMNL's free tier allows 12 requests/hour,
+# so 5 min is the floor; 10 min leaves headroom. TRMNL+ allows 30/hour.
+monitoring_trmnl_schedule: "*:0/10"
+# Jitter so it never fires dead-on the minute boundary.
+monitoring_trmnl_randomized_delay_sec: 15
+monitoring_trmnl_timeout_sec: 10
+
+# Install locations.
+monitoring_trmnl_script_path: /usr/local/bin/trmnl-homelab-push
+monitoring_trmnl_env_dir: /etc/trmnl-homelab-push

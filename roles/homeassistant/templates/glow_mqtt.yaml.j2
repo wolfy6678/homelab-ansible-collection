@@ -1,0 +1,62 @@
+---
+# Managed by Ansible — Hildebrand Glow IHD/CAD local-MQTT sensors.
+# The device publishes JSON to glow/<device id>/SENSOR/electricitymeter and
+# .../gasmeter on the local broker. Requires the MQTT integration (broker config
+# entry) to be set up — the homeassistant role creates that from the mosquitto
+# credentials. Entity ids are derived from the names below (e.g. sensor.glow_
+# electricity_import) and are what the Energy-dashboard wiring points at.
+mqtt:
+  sensor:
+    - name: "Glow electricity import"
+      unique_id: glow_electricity_import
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/electricitymeter"
+      value_template: "{% raw %}{{ value_json.electricitymeter.energy.import.cumulative }}{% endraw %}"
+      unit_of_measurement: "kWh"
+      device_class: energy
+      state_class: total_increasing
+
+    - name: "Glow electricity power"
+      unique_id: glow_electricity_power
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/electricitymeter"
+      value_template: "{% raw %}{{ value_json.electricitymeter.power.value }}{% endraw %}"
+      unit_of_measurement: "kW"
+      device_class: power
+      state_class: measurement
+
+    - name: "Glow electricity unit rate"
+      unique_id: glow_electricity_unit_rate
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/electricitymeter"
+      value_template: "{% raw %}{{ value_json.electricitymeter.energy.import.price.unitrate }}{% endraw %}"
+      unit_of_measurement: "GBP/kWh"
+      state_class: measurement
+
+    - name: "Glow electricity standing charge"
+      unique_id: glow_electricity_standing_charge
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/electricitymeter"
+      value_template: "{% raw %}{{ value_json.electricitymeter.energy.import.price.standingcharge }}{% endraw %}"
+      unit_of_measurement: "GBP"
+      state_class: measurement
+{% if homeassistant_glow_mqtt_gas %}
+
+    - name: "Glow gas import"
+      unique_id: glow_gas_import
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/gasmeter"
+      value_template: "{% raw %}{{ value_json.gasmeter.energy.import.cumulative }}{% endraw %}"
+      unit_of_measurement: "kWh"
+      device_class: energy
+      state_class: total_increasing
+
+    - name: "Glow gas unit rate"
+      unique_id: glow_gas_unit_rate
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/gasmeter"
+      value_template: "{% raw %}{{ value_json.gasmeter.energy.import.price.unitrate }}{% endraw %}"
+      unit_of_measurement: "GBP/kWh"
+      state_class: measurement
+
+    - name: "Glow gas standing charge"
+      unique_id: glow_gas_standing_charge
+      state_topic: "glow/{{ homeassistant_glow_mqtt_device_id }}/SENSOR/gasmeter"
+      value_template: "{% raw %}{{ value_json.gasmeter.energy.import.price.standingcharge }}{% endraw %}"
+      unit_of_measurement: "GBP"
+      state_class: measurement
+{% endif %}

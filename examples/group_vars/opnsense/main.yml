@@ -1,0 +1,42 @@
+---
+# OPNsense firewall. The role reconciles just the resources the homelab services
+# depend on — the Unbound DNS overrides that point the Caddy hostnames at the
+# reverse proxy, plus an optional monitoring scrape rule.
+#
+# It is NOT a full firewall config: interface assignment, NAT port-forwards
+# (including headscale's 443), system tunables and certificates are not managed
+# here. Keep those in a committed config.xml backup. See docs/opnsense.md.
+
+# The play runs from localhost and talks to the API over the network; it does
+# not SSH into OPNsense.
+ansible_connection: local
+
+# Master gate. Left false so a full site run never requires firewall API access.
+# Flip to true once the API key below is set.
+opnsense_manage_enabled: false
+
+# System > Access > Users > API keys: OPNsense issues a key/secret pair. The
+# user needs privileges for what is managed — an admin-group user is simplest;
+# to least-privilege it, grant "Services: Unbound (MVC)" and "Firewall: Rules".
+# opnsense_api_key: "<api key>"
+# ansible-vault encrypt_string --vault-id homelab@prompt '<secret>' --name 'opnsense_api_secret'
+# opnsense_api_secret: !vault |
+#   ...
+
+# OPNsense ships a self-signed web certificate, so verification is off. Set true
+# and point opnsense_ssl_ca_file at the firewall CA to verify instead.
+opnsense_ssl_verify: false
+
+# Must match caddy_base_domain. The per-name override list is derived from
+# caddy_sites automatically — no mirroring needed here.
+opnsense_unbound_domain: example.com
+
+# A single wildcard record is less upkeep, but only safe when the reverse proxy
+# owns the whole zone. Leave it off if any name in the zone must resolve
+# somewhere else internally — headscale's public `vpn` name is the usual case,
+# and a wildcard would hijack it and break the VPN for on-LAN devices.
+opnsense_unbound_wildcard: false
+
+# Optional: a LAN -> firewall pass rule letting the monitoring container scrape
+# OPNsense's exporters. Usually unnecessary — the stock LAN allow covers it.
+# opnsense_monitoring_rule_enabled: true

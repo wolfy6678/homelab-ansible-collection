@@ -1,0 +1,25 @@
+---
+# Inputs passed straight through to your Terraform root module by the proxmox
+# role. See docs/terraform.md; the root module itself is in examples/terraform.
+
+# present = converge the fleet, absent = destroy it.
+terraform_proxmox_state: present
+
+terraform_proxmox_api_url: https://pve.example.lan:8006/api2/json
+terraform_proxmox_user: "root@pam"
+terraform_proxmox_lvm_storage: local-lvm
+
+# Injected for root inside every container — this is how Ansible gets in after
+# provisioning. Use the public half of the key you run Ansible with.
+terraform_proxmox_ssh_key: "ssh-ed25519 AAAA... ansible"
+
+# ansible-vault encrypt_string --vault-id homelab@prompt '<password>' --name 'terraform_proxmox_password'
+# terraform_proxmox_password: !vault |
+#   ...
+# Root password set inside each container:
+# terraform_proxmox_lxc_password: !vault |
+#   ...
+
+# Path to your Terraform root module, resolved relative to the directory you run
+# ansible-playbook from (default ../../terraform/).
+proxmox_terraform_project_path: ../terraform/

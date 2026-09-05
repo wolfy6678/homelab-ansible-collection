@@ -1,0 +1,69 @@
+---
+namespace: homelab
+name: core
+version: 1.0.0
+readme: README.md
+
+authors:
+  - Jack Saunders (https://github.com/wolfy6678)
+
+description: >-
+  Ansible roles for building a self-hosted homelab on Proxmox LXC containers:
+  reverse proxy, monitoring and logging stack, VPN, media, home automation,
+  backups and host hardening.
+
+license:
+  - MIT
+
+tags:
+  - homelab
+  - proxmox
+  - lxc
+  - infrastructure
+  - monitoring
+  - grafana
+  - prometheus
+  - selfhosted
+  - debian
+  - linux
+
+# Collections the roles call modules from. Installed automatically alongside
+# this collection by `ansible-galaxy collection install homelab.core`.
+dependencies:
+  # community.general.terraform (proxmox role) + community.general.npm (homepage)
+  community.general: ">=13.0.0,<14.0.0"
+  # community.proxmox.proxmox (proxmox role — start LXCs after Terraform)
+  community.proxmox: ">=2.0.0,<3.0.0"
+  # oxlorg.opnsense (opnsense role — Unbound overrides / firewall rules via the
+  # OPNsense API). Version schema tracks OPNsense releases, so pin to the line
+  # matching your firewall's version (25.7.x = OPNsense 25.7).
+  oxlorg.opnsense: ">=25.7.0,<26.0.0"
+
+repository: https://github.com/wolfy6678/homelab-ansible-collection
+documentation: https://github.com/wolfy6678/homelab-ansible-collection#readme
+homepage: https://github.com/wolfy6678/homelab-ansible-collection
+issues: https://github.com/wolfy6678/homelab-ansible-collection/issues
+
+build_ignore:
+  - .github
+  - .ansible-lint
+  - .gitignore
+  # Guidance for working ON this repository, not part of what consumers install.
+  - CLAUDE.md
+  # ansible-lint / ansible-compat scratch dir — present after a local lint run
+  # and otherwise silently shipped inside the artefact.
+  - .ansible
+  - dist
+  - "*.tar.gz"
+  # Terraform working dirs and state. `collection build` reads the filesystem,
+  # not git, so a local `terraform init` would otherwise ship the downloaded
+  # provider binary (tens of MB) inside the artefact. Patterns are fnmatched
+  # against the path relative to the collection root, and `*` spans `/`, so the
+  # `*/` forms are what actually catch the nested terraform/ and examples/ dirs.
+  - .terraform
+  - "*/.terraform"
+  - "*/.terraform/*"
+  - "*/.terraform.lock.hcl"
+  - "*.tfstate"
+  - "*.tfstate.*"
+  - "*.tfvars"

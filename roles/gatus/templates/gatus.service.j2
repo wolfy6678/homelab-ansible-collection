@@ -1,0 +1,16 @@
+[Unit]
+Description=Gatus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ gatus_user }}
+Environment=GATUS_CONFIG_PATH={{ gatus_config_dir }}/config.yaml
+WorkingDirectory={{ gatus_data_dir }}
+ExecStart=/usr/local/bin/gatus
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+---
+# Managed by Ansible — do not edit on the host
+default_config:
+
+{% if groups['caddy'] is defined and groups['caddy'] | length > 0 %}
+# Trust the Caddy reverse proxy so HA accepts forwarded requests (otherwise it
+# rejects them with a 400 invalid-host error when reached via ha.homelab.lan).
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - {{ hostvars[groups['caddy'][0]].ansible_host }}
+{% endif %}
+
+homeassistant:
+  packages: !include_dir_named packages
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml

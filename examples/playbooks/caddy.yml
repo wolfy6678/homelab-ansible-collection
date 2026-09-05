@@ -1,0 +1,5 @@
+---
+- name: Install and start the Caddy reverse proxy
+  hosts: caddy
+  roles:
+    - homelab.core.caddy

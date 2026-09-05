@@ -1,0 +1,190 @@
+name: CI
+
+# Offline static validation of the collection, and — on main, once everything
+# passes — an automatic tag and GitHub release for the version in galaxy.yml.
+# No secrets, no Proxmox connection, nothing reaches a live host.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialise main so two pushes can never race to create the same tag.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ansible:
+    name: Ansible lint + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ansible-lint
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-lint
+
+      - name: Install collection dependencies
+        # galaxy.yml declares these; ansible-lint needs them on disk to
+        # resolve the modules the roles call.
+        run: ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense
+
+      - name: ansible-lint (production profile)
+        run: ansible-lint
+
+      - name: Build the collection artefact
+        # Catches galaxy.yml errors that only surface at package time.
+        run: ansible-galaxy collection build --output-path dist
+
+      - name: Check nothing unwanted got packaged
+        # build_ignore is fnmatched against paths relative to the collection
+        # root, which is easy to get subtly wrong — a missed pattern ships a
+        # provider binary or, worse, a tfvars file. Assert on the real artefact.
+        run: |
+          set -euo pipefail
+          contents=$(tar tzf dist/*.tar.gz)
+          if grep -qE '\.terraform|\.tfstate|\.tfvars$|^\.github/|CLAUDE\.md' <<<"$contents"; then
+            echo "::error::unwanted files in the artefact:"
+            grep -E '\.terraform|\.tfstate|\.tfvars$|^\.github/|CLAUDE\.md' <<<"$contents"
+            exit 1
+          fi
+          # And assert the things that *must* ship actually did.
+          for want in roles/ docs/ examples/ terraform/modules/lxc/; do
+            grep -q "^$want" <<<"$contents" || { echo "::error::$want missing from artefact"; exit 1; }
+          done
+          echo "artefact contents OK"
+
+      - name: Upload the artefact
+        # The release job publishes this exact file, so what ships is what CI
+        # verified rather than a second, unverified build.
+        uses: actions/upload-artifact@v4
+        with:
+          name: collection
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  terraform:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.15.6"
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive terraform examples/terraform
+
+      - name: Validate the shipped LXC module
+        working-directory: terraform/modules/lxc
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate the example root module
+        # examples/terraform sources the module from a git tag, which does not
+        # resolve on a PR branch (and would need network + auth). Validate a
+        # copy with the source repointed at the working tree instead, so the
+        # example we ship to users is actually known to work.
+        #
+        # The copy has to live inside the checkout: a Terraform local module
+        # source must be relative (./ or ../), so a /tmp copy cannot reach the
+        # module at all.
+        run: |
+          set -euo pipefail
+          rm -rf .ci-example-root
+          cp -r examples/terraform .ci-example-root
+          sed -i 's#source *= *"git::[^"]*//terraform/modules/lxc?ref=[^"]*"#source = "../terraform/modules/lxc"#' \
+            .ci-example-root/main.tf
+          grep -q 'source = "../terraform/modules/lxc"' .ci-example-root/main.tf \
+            || { echo "::error::failed to repoint the module source — check the sed pattern"; exit 1; }
+          cd .ci-example-root
+          terraform init -backend=false
+          terraform validate
+
+  version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: .github/scripts/check-version.sh
+
+  release:
+    name: Tag and release
+    # Only after every check above has passed, and only for a real push to main
+    # — never for a pull request, which would tag code that isn't merged.
+    needs: [ansible, terraform, version]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # tags, so we can tell whether this version is new
+
+      - name: Decide whether there is anything to release
+        id: check
+        # Idempotent by design: the tag is derived from galaxy.yml, so ordinary
+        # commits to main find their tag already present and do nothing. A
+        # release happens exactly when someone bumps the version.
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/^version:[[:space:]]*//p' galaxy.yml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already tagged — nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "v$version is new — will tag and release."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the verified artefact
+        if: steps.check.outputs.release == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: collection
+          path: dist
+
+      - name: Extract this version's changelog section
+        if: steps.check.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          awk -v v="${{ steps.check.outputs.version }}" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/          { exit }
+            on                      { print }
+          ' CHANGELOG.md > release-notes.md
+          test -s release-notes.md || { echo "::error::empty release notes"; exit 1; }
+          cat release-notes.md
+
+      - name: Tag the commit
+        if: steps.check.outputs.release == 'true'
+        run: |
+          set -euo pipefail
+          version="${{ steps.check.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$version" -m "homelab.core $version"
+          git push origin "v$version"
+
+      - name: Publish the GitHub release
+        if: steps.check.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.check.outputs.version }}" \
+            dist/*.tar.gz \
+            --title "homelab.core ${{ steps.check.outputs.version }}" \
+            --notes-file release-notes.md

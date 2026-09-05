@@ -1,0 +1,12 @@
+---
+- name: Install and start the monitoring stack
+  hosts: monitoring
+  roles:
+    - homelab.core.prometheus
+    # Loki before Grafana, so its datasource is live when Grafana starts.
+    - homelab.core.loki
+    # Alloy here collects the local journal AND the OPNsense syslog pipeline.
+    - homelab.core.alloy
+    - homelab.core.grafana
+    # Opt-in: push a compact infra-health summary to a TRMNL e-ink plugin.
+    - homelab.core.monitoring_trmnl

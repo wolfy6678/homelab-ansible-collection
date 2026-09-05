@@ -1,0 +1,14 @@
+---
+# Automatic unattended security upgrades on every LXC. The Debian default
+# origins (50unattended-upgrades) already scope this to the security suite, so
+# the role just installs the package, turns on the periodic timers, and sets
+# reboot behaviour. This keeps hosts patched between deploys, complementing
+# any manual upgrade-now playbook of your own.
+#
+# Auto-reboot is OFF by default: a kernel/security update that needs a reboot
+# waits for the next manual maintenance rather than bouncing a service at 04:00.
+unattended_upgrades_auto_reboot: false
+unattended_upgrades_reboot_time: "04:00"
+# Optional address for failure reports (needs a working MTA on the host). Empty
+# = no mail.
+unattended_upgrades_mail: ""

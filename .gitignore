@@ -1,0 +1,17 @@
+# Built collection artefacts
+*.tar.gz
+
+# Terraform
+.terraform
+*.tfstate
+*.tfstate.*
+
+# Python
+__pycache__/
+
+# ansible-lint / ansible-compat scratch
+.ansible/
+
+# Scratch copy of examples/terraform with the module source repointed locally,
+# created by the CI step you can also run by hand.
+.ci-example-root/

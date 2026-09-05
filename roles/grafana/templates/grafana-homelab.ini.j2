@@ -1,0 +1,18 @@
+; Managed by Ansible — do not edit on the host
+[server]
+http_port = {{ grafana_port }}
+{% if grafana_root_url %}
+; Served behind Caddy under a sub-path (monitoring.<domain>/grafana). root_url +
+; serve_from_sub_path make Grafana emit correct asset/redirect URLs for the prefix.
+root_url = {{ grafana_root_url }}
+serve_from_sub_path = true
+{% endif %}
+
+[security]
+admin_user = {{ grafana_admin_user }}
+; $ is escaped to $$ because Grafana expands ${...}/$VAR references in config
+; values — an unescaped $ in the password would be mangled before Grafana reads it.
+admin_password = {{ grafana_admin_password | replace('$', '$$') }}
+
+[users]
+allow_sign_up = false

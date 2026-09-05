@@ -1,0 +1,15 @@
+---
+# Mosquitto MQTT broker, co-located on the Home Assistant container.
+# See roles/mosquitto/README.md.
+#
+# Off by default — the whole role is a no-op until this is true. Setting it
+# false again PURGES the broker, so the two Glow routes can never run at once.
+#
+# Declare this HERE and nowhere else. The Home Assistant host is in both the
+# `mosquitto` and `homeassistant` groups, and a copy in group_vars/homeassistant
+# would win on group-depth precedence and silently make this switch inert.
+mosquitto_enabled: false
+
+# mosquitto_username / mosquitto_password live in group_vars/all/main.yml so
+# clients outside this group can read them. Don't duplicate them here —
+# group_vars/all would win anyway.

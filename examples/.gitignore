@@ -1,0 +1,12 @@
+# Terraform working dir, state and credentials. terraform.tfvars holds the
+# Proxmox API password, the LXC root password and your SSH key — it must never
+# be committed. Keep terraform.tfvars.example (which holds no secrets) tracked.
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/crash.log
+terraform.tfvars
+
+# Ansible
+*.retry
+.vault_pass

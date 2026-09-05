@@ -1,0 +1,47 @@
+---
+# Headscale control server + co-located Tailscale subnet router.
+#
+# The proxmox role reboots this LXC after adding /dev/net/tun passthrough
+# (lxc_tun), so make sure the container is reachable before doing anything.
+# Preflight: these four have no role defaults on purpose — the monitoring LXC's
+# prometheus template reads them from this host's vars via hostvars to build the
+# headscale + fail2ban scrape jobs, and role defaults are invisible in hostvars.
+# Assert them here so a missing declaration fails with an instruction rather
+# than a bare "undefined variable" mid-run. See docs/inventory.md.
+- name: Assert the required headscale inventory variables are set
+  ansible.builtin.assert:
+    that:
+      - headscale_metrics_listen_addr is defined
+      - headscale_fail2ban_enabled is defined
+      - headscale_fail2ban_exporter_enabled is defined
+      - headscale_fail2ban_exporter_port is defined
+    fail_msg: >-
+      Set headscale_metrics_listen_addr (e.g. "0.0.0.0:9090"),
+      headscale_fail2ban_enabled, headscale_fail2ban_exporter_enabled and
+      headscale_fail2ban_exporter_port (e.g. 9191) in
+      group_vars/headscale/main.yml. They must be declared in your inventory,
+      not as role defaults, so the prometheus role can read them via hostvars.
+      See docs/inventory.md.
+    quiet: true
+
+- name: Wait for the container to be reachable
+  ansible.builtin.wait_for_connection:
+    timeout: 60
+
+# The play runs with gather_facts: false so this wait can guard the first
+# connection; gather now (install.yml needs ansible_distribution_release).
+- name: Gather facts
+  ansible.builtin.setup:
+
+- name: Install headscale and tailscale
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure and start the headscale control server
+  ansible.builtin.import_tasks: server.yml
+
+- name: Register and approve the Tailscale subnet router
+  ansible.builtin.import_tasks: router.yml
+
+- name: Protect the public endpoint with fail2ban
+  ansible.builtin.import_tasks: fail2ban.yml
+  when: headscale_fail2ban_enabled | bool

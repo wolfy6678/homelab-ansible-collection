@@ -1,0 +1,31 @@
+---
+# OtterWiki — a git-backed markdown wiki. See roles/otterwiki/README.md.
+
+otterwiki_site_name: Homelab Wiki
+
+# The admin user is created once and never modified, so changing the password in
+# the UI later is safe. ADMIN_USER_EMAIL is pinned to this address, so no other
+# registration can become admin.
+otterwiki_admin_email: admin@example.com
+# otterwiki_admin_password: !vault |
+#   ...
+
+# Signs the session cookie — must stay stable across runs or every session is
+# invalidated. Generate with:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+# otterwiki_secret_key: !vault |
+#   ...
+
+# Permissions: ANONYMOUS, REGISTERED or APPROVED. With no SMTP configured,
+# registrations are auto-approved, so REGISTERED means "anyone on the LAN who
+# signs up".
+otterwiki_read_access: ANONYMOUS
+otterwiki_write_access: REGISTERED
+
+# Optional: push-only mirroring of the wiki content to an external git remote,
+# e.g. a private GitHub repo. Use an SSH URL with a deploy key that has write
+# access; a token-in-URL HTTPS remote works too, but OtterWiki logs the URL on
+# every push.
+# otterwiki_git_push_url: git@github.com:<owner>/<repo>.git
+# otterwiki_git_push_private_key: !vault |
+#   ...

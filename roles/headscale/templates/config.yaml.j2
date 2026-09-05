@@ -1,0 +1,80 @@
+# Managed by Ansible — do not edit on the host
+# https://headscale.net/stable/ref/configuration/
+---
+server_url: {{ headscale_server_url }}
+listen_addr: {{ headscale_listen_addr }}:{{ headscale_listen_port }}
+metrics_listen_addr: {{ headscale_metrics_listen_addr }}
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+
+noise:
+  private_key_path: {{ headscale_lib_dir }}/noise_private.key
+
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+
+# Use Tailscale's public DERP servers for NAT traversal / relay, so no extra
+# inbound ports are required beyond the control server itself.
+derp:
+  server:
+    enabled: false
+  urls:
+    - https://controlplane.tailscale.com/derpmap/default
+  auto_update_enabled: true
+  update_frequency: 24h
+
+disable_check_updates: false
+ephemeral_node_inactivity_timeout: 30m
+
+database:
+  type: sqlite
+  sqlite:
+    path: {{ headscale_lib_dir }}/db.sqlite
+    write_ahead_log: true
+
+# Built-in Let's Encrypt TLS (TLS-ALPN-01 — served on the listen port, 443).
+# tls_letsencrypt_hostname is empty when headscale_tls_enabled is false, which
+# makes headscale serve plain HTTP on the listen port instead.
+acme_url: {{ headscale_acme_url }}
+acme_email: "{{ headscale_acme_email }}"
+tls_letsencrypt_hostname: "{{ headscale_tls_hostname }}"
+tls_letsencrypt_cache_dir: {{ headscale_lib_dir }}/cache
+tls_letsencrypt_challenge_type: TLS-ALPN-01
+tls_cert_path: ""
+tls_key_path: ""
+
+log:
+  level: info
+  format: text
+
+dns:
+  magic_dns: true
+  base_domain: {{ headscale_base_domain }}
+  nameservers:
+    global:
+{% for ns in headscale_dns_nameservers %}
+      - {{ ns }}
+{% endfor %}
+{% if headscale_dns_split %}
+    # Split DNS: these zones resolve via the LAN resolver so remote clients can
+    # reach the split-horizon Caddy hostnames (see headscale_dns_split default).
+    split:
+{% for domain, servers in headscale_dns_split.items() %}
+      {{ domain }}:
+{% for ns in servers %}
+        - {{ ns }}
+{% endfor %}
+{% endfor %}
+{% endif %}
+  search_domains: []
+
+unix_socket: /var/run/headscale/headscale.sock
+unix_socket_permission: "0770"
+
+# ACL policy restricting what enrolled devices can reach (headscale_acl_dsts
+# in the role defaults). An empty path means the default allow-all.
+policy:
+  mode: file
+  path: "{{ headscale_acl_policy_path if headscale_acl_enabled | bool else '' }}"

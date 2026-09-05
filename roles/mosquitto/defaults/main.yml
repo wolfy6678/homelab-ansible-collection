@@ -1,0 +1,20 @@
+---
+# Mosquitto MQTT broker, co-located on the Home Assistant LXC (the same
+# co-location pattern as gatus on the homepage LXC). The whole role is gated on
+# mosquitto_enabled and is a NO-OP until it is set true (in group_vars/mosquitto/
+# main.yml). Intended for the Hildebrand Glow IHD/CAD, which publishes near
+# real-time meter data over local MQTT: Home Assistant subscribes at localhost,
+# the Glow device connects to the broker host's LAN IP.
+mosquitto_enabled: false
+
+mosquitto_port: 1883
+
+# Single shared broker account used by Home Assistant's MQTT integration, the
+# Glow device, and any other MQTT client you run. Declare the real values in
+# group_vars/all/main.yml rather than group_vars/mosquitto, so hosts outside
+# the mosquitto group can read them too. allow_anonymous is off, so a password
+# is required once enabled; undef() so a run fails with a hint until it is set
+# (and vault-encrypted). group_vars/all overrides these defaults.
+mosquitto_username: homelab
+mosquitto_password: >-
+  {{ undef(hint='Set mosquitto_password in group_vars/all/main.yml (vault-encrypt it) to enable the broker') }}

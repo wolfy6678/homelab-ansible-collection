@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic homelab infra-health push to TRMNL
+
+[Timer]
+OnCalendar={{ monitoring_trmnl_schedule }}
+RandomizedDelaySec={{ monitoring_trmnl_randomized_delay_sec }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

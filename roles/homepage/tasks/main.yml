@@ -1,0 +1,88 @@
+---
+- name: Install curl for nodesource setup
+  ansible.builtin.apt:
+    name: curl
+    state: present
+    update_cache: true
+
+- name: Add NodeSource Node.js 22 repository  # noqa: command-instead-of-module
+  ansible.builtin.shell:
+    cmd: set -o pipefail; curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/sources.list.d/nodesource.list
+
+- name: Install OS dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - nodejs
+    state: present
+    update_cache: true
+
+- name: Install pnpm globally
+  community.general.npm:
+    name: pnpm
+    global: true
+    state: present
+
+- name: Clone homepage repository
+  ansible.builtin.git:
+    repo: https://github.com/gethomepage/homepage.git
+    dest: "{{ homepage_install_dir }}"
+    version: "{{ homepage_version }}"
+  register: homepage_git_clone
+
+# BUILD_ID only exists after a successful build, so a failed or interrupted
+# build is retried on the next run even when the checkout hasn't changed
+- name: Check for completed build
+  ansible.builtin.stat:
+    path: "{{ homepage_install_dir }}/.next/BUILD_ID"
+  register: homepage_build_id
+
+- name: Install dependencies
+  ansible.builtin.command:
+    cmd: /usr/local/bin/pnpm install --frozen-lockfile
+    chdir: "{{ homepage_install_dir }}"
+  when: homepage_git_clone is changed or not homepage_build_id.stat.exists
+  changed_when: true
+  notify: Restart homepage
+
+- name: Build homepage
+  ansible.builtin.command:
+    cmd: /usr/local/bin/pnpm build
+    chdir: "{{ homepage_install_dir }}"
+  when: homepage_git_clone is changed or not homepage_build_id.stat.exists
+  changed_when: true
+  notify: Restart homepage
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: "{{ homepage_install_dir }}/config"
+    state: directory
+    mode: "0755"
+
+- name: Template homepage config
+  ansible.builtin.template:
+    src: "{{ item }}.yaml.j2"
+    dest: "{{ homepage_install_dir }}/config/{{ item }}.yaml"
+    mode: "0600"
+  loop:
+    - services
+    - settings
+    - widgets
+  notify: Restart homepage
+
+- name: Template systemd service unit
+  ansible.builtin.template:
+    src: homepage.service.j2
+    dest: /etc/systemd/system/homepage.service
+    mode: "0644"
+  notify: Restart homepage
+
+- name: Enable and start homepage service
+  ansible.builtin.systemd_service:
+    name: homepage
+    state: started
+    enabled: true
+    daemon_reload: true

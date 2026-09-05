@@ -1,0 +1,18 @@
+---
+# Guarded so the patch is applied at most once: grep for our marker first and
+# only patch when it is absent (the replace regexp would otherwise re-match the
+# untouched function signature and duplicate the injection on every run).
+- name: Check whether the subscription nag is already patched
+  ansible.builtin.command:
+    cmd: grep -F "orig_cmd(); return; // homelab no-nag" /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+  register: proxmox_node_nag_check
+  changed_when: false
+  failed_when: false
+
+- name: Patch out the no-subscription dialog
+  ansible.builtin.replace:
+    path: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+    regexp: '(checked_command: function\(orig_cmd\) \{)'
+    replace: '\1 orig_cmd(); return; // homelab no-nag'
+  when: proxmox_node_nag_check.rc != 0
+  notify: Restart pveproxy

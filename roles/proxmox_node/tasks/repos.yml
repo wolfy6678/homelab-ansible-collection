@@ -1,0 +1,40 @@
+---
+# Suite tracks the running Debian codename (trixie on PVE 9, bookworm on PVE 8),
+# so the same file is correct across PVE major versions. apt reads deb822
+# .sources on both, so we always write that format.
+- name: Configure the Proxmox no-subscription APT repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/proxmox.sources
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: {{ proxmox_node_pve_repo_uri }}
+      Suites: {{ ansible_distribution_release }}
+      Components: {{ proxmox_node_pve_repo_component }}
+      Signed-By: {{ proxmox_node_pve_keyring }}
+  notify: Update apt cache
+
+- name: Stat enterprise repo files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ proxmox_node_enterprise_sources }}"
+  register: proxmox_node_ent_stat
+
+# Disable rather than delete (reversible) — enterprise repos 401 without a
+# subscription and would break `apt update`. Single-stanza files on a fresh
+# install; the regexp updates an existing Enabled line or the insertafter adds
+# one. No-op on a host that has no enterprise files.
+- name: Disable enterprise APT repositories (if present)
+  ansible.builtin.lineinfile:
+    path: "{{ item.item }}"
+    regexp: '^Enabled:'
+    line: "Enabled: false"
+    insertafter: '^Types:'
+    firstmatch: true
+  loop: "{{ proxmox_node_ent_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.stat.exists
+  notify: Update apt cache

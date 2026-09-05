@@ -1,0 +1,17 @@
+[Unit]
+Description=Push homelab infra-health summary to TRMNL
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# TRMNL_URL (with the secret UUID) comes from the 0600 env file.
+EnvironmentFile={{ monitoring_trmnl_env_dir }}/homelab.env
+Environment=PROM_URL={{ monitoring_trmnl_prometheus_url }}
+Environment=NODE_JOB={{ monitoring_trmnl_node_job }}
+Environment=TIMEOUT={{ monitoring_trmnl_timeout_sec }}
+ExecStart={{ monitoring_trmnl_script_path }}
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

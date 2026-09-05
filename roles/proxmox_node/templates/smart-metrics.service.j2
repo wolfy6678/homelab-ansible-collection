@@ -1,0 +1,6 @@
+[Unit]
+Description=SMART disk-health metrics for the node_exporter textfile collector
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/smart-metrics {{ proxmox_node_textfile_dir }}

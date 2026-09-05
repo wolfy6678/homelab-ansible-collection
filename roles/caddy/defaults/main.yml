@@ -1,0 +1,64 @@
+---
+# Caddy reverse proxy: fronts the homelab web services with HTTPS and clean
+# hostnames (<name>.homelab.lan). Caddy is installed from the official Cloudsmith
+# apt repo; the package ships the `caddy` user, systemd unit and /etc/caddy/Caddyfile.
+caddy_base_domain: homelab.lan
+
+# TLS mode:
+#   internal — Caddy's own local CA issues per-site certs (no public DNS needed).
+#              Install Caddy's root CA on your devices to avoid browser warnings:
+#              /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+#   acme     — public Let's Encrypt certs via the DNS-01 challenge (browser-trusted
+#              everywhere, no per-device CA). Needs caddy_base_domain to be a real
+#              domain you own, caddy_acme_email, and DNS-01 wiring below. The
+#              services stay LAN-only (split-horizon): Unbound resolves the names
+#              internally to Caddy, and nothing is exposed to the internet — only
+#              transient ACME TXT records live in the public zone.
+caddy_tls_mode: internal
+caddy_acme_email: ""
+
+# --- DNS-01 (only used when caddy_tls_mode: acme) ---------------------------
+# DNS provider whose API issues the ACME DNS-01 TXT records. The role installs
+# the matching caddy-dns plugin into the apt Caddy binary via
+# `caddy add-package github.com/caddy-dns/<provider>` (the stock package ships no
+# DNS plugins) and the Caddyfile sets `acme_dns <provider>` as the global cert
+# challenge. Provider name == the caddy-dns module suffix (e.g. cloudflare).
+caddy_dns_provider: cloudflare
+caddy_dns_package: "github.com/caddy-dns/{{ caddy_dns_provider }}"
+# Scoped DNS API token for caddy_base_domain's zone, injected into Caddy's
+# systemd env as CADDY_DNS_API_TOKEN. undef() so an acme run fails with a hint
+# until set; only referenced in acme mode, so internal mode never evaluates it.
+caddy_dns_api_token: >-
+  {{ undef(hint='Set caddy_dns_api_token to a scoped DNS API token for
+  caddy_base_domain (Cloudflare: My Profile > API Tokens > Edit zone DNS, scoped
+  to this zone) and vault-encrypt it in group_vars/caddy/main.yml — required when
+  caddy_tls_mode is acme') }}
+# Public resolvers for the ACME DNS-01 *propagation self-check* only. Caddy resolves
+# via the LAN resolver (OPNsense Unbound), which is split-horizon authoritative for
+# caddy_base_domain (it holds the per-name host overrides) and so cannot see the
+# public _acme-challenge TXT records Caddy just created — the check then times out
+# ("timed out waiting for record to fully propagate"). Pointing the check at public
+# resolvers bypasses the LAN view. Set to [] to fall back to the system resolver.
+caddy_dns_resolvers:
+  - 1.1.1.1
+  - 1.0.0.1
+# DNS-01 propagation tuning. propagation_delay makes Caddy wait after creating the
+# TXT record before doing anything else. propagation_timeout: -1 DISABLES Caddy's
+# own DNS propagation self-check — that check is done through the resolvers above,
+# and against Cloudflare's public recursive resolvers it races negative/positive
+# caching (each retry uses a fresh challenge value the cache hasn't picked up yet),
+# so batches of sites get stuck timing out even though the record is live at
+# Cloudflare's authoritative NS. Skipping the self-check and letting the ACME CA do
+# the lookup (it queries the authoritative NS directly, no caching) is reliable here;
+# the 30s delay is the safety margin so the record is live before the CA validates.
+caddy_dns_propagation_delay: 30s
+caddy_dns_propagation_timeout: "-1"
+
+# Proxied sites: <name>.{{ caddy_base_domain }} -> upstream. The list lives in
+# group_vars/caddy/main.yml (caddy_sites), NOT here: the gatus role (certificate
+# checks) and the opnsense role (Unbound overrides) derive their hostname lists
+# from it via hostvars, and role defaults are invisible in hostvars.
+caddy_sites: >-
+  {{ undef(hint='Define caddy_sites in group_vars/caddy/main.yml — the list was
+  moved out of the role defaults so the gatus and opnsense roles can derive the
+  clean hostnames from it via hostvars') }}

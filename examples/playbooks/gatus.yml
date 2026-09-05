@@ -1,0 +1,5 @@
+---
+- name: Install and start Gatus
+  hosts: gatus
+  roles:
+    - homelab.core.gatus

@@ -1,0 +1,11 @@
+---
+# Provision the containers: build the Terraform lxcs map from the `lxc`
+# inventory group, apply it, start the containers, pass /dev/net/tun into any
+# flagged with lxc_tun, and configure vzdump backups if enabled.
+#
+# Set terraform_proxmox_state: absent to destroy the fleet instead.
+- name: Create Proxmox LXCs using Terraform
+  hosts: proxmox
+  gather_facts: false
+  roles:
+    - homelab.core.proxmox

@@ -1,0 +1,157 @@
+// Managed by Ansible — do not edit on the host
+// Alloy pipelines (each gated on its role flag):
+//   * OPNsense remote syslog -> parse (Suricata fast-log + eve.json alerts +
+//     filterlog) -> GeoIP-enrich source IP -> Loki. Unmatched lines are still
+//     stored raw, so the parsing regexes can be tuned against real data.
+//   * Local systemd journal -> host/unit/priority labels -> Loki (the fleet
+//     "Homelab Logs" pipeline — the only block rendered on the agent hosts).
+logging {
+  level = "warn"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "{{ alloy_loki_push_url }}"
+  }
+}
+{% if alloy_journal_enabled | bool %}
+
+// --- systemd journal ---------------------------------------------------------
+loki.relabel "journal" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  // journald PRIORITY: 0-7 (emerg..debug) — low cardinality, safe to index.
+  rule {
+    source_labels = ["__journal_priority"]
+    target_label  = "priority"
+  }
+}
+
+loki.source.journal "system" {
+  max_age       = "{{ alloy_journal_max_age }}"
+  relabel_rules = loki.relabel.journal.rules
+  // host = inventory short name, matching the Prometheus `instance` label.
+  labels        = { job = "journal", host = "{{ inventory_hostname_short }}" }
+  forward_to    = [loki.write.default.receiver]
+}
+{% endif %}
+{% if alloy_syslog_enabled | bool %}
+
+// --- OPNsense remote syslog ----------------------------------------------
+// Promote low-cardinality syslog metadata to labels. __syslog_message_app_name
+// is the OPNsense sub-system: "suricata", "filterlog", "suricata-eve" (the
+// custom eve.json syslog-ng shipper — see docs/opnsense.md).
+loki.relabel "opnsense" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__syslog_message_app_name"]
+    target_label  = "logtype"
+  }
+  rule {
+    source_labels = ["__syslog_message_hostname"]
+    target_label  = "host"
+  }
+  rule {
+    source_labels = ["__syslog_message_severity"]
+    target_label  = "severity"
+  }
+}
+
+loki.source.syslog "opnsense" {
+  listener {
+    address                  = "0.0.0.0:{{ alloy_syslog_port }}"
+    protocol                 = "{{ alloy_syslog_protocol }}"
+    syslog_format            = "{{ alloy_syslog_format }}"
+    max_message_length       = {{ alloy_syslog_max_message_length }}
+    labels                   = { job = "opnsense" }
+  }
+  relabel_rules = loki.relabel.opnsense.rules
+  forward_to    = [loki.process.opnsense.receiver]
+}
+
+loki.process "opnsense" {
+  forward_to = [loki.write.default.receiver]
+
+  // --- Suricata IDS alerts (fast-log text over syslog) ---------------------
+  // [gid:sid:rev] MSG [Classification: CLASS] [Priority: N] {PROTO} SIP:SP -> DIP:DP
+  stage.match {
+    selector = `{logtype="suricata"}`
+
+    stage.regex {
+      expression = `\[\d+:(?P<sid>\d+):\d+\]\s+(?P<signature>.*?)\s+\[Classification:\s*(?P<category>[^\]]*)\]\s+\[Priority:\s*(?P<priority>\d+)\]\s+\{(?P<proto>\w+)\}\s+(?P<src_ip>[0-9a-fA-F.:]+):(?P<src_port>\d+)\s+->\s+(?P<dest_ip>[0-9a-fA-F.:]+):(?P<dest_port>\d+)`
+    }
+    stage.labels {
+      values = { category = "" }
+    }
+  }
+
+  // --- Suricata IDS alerts (eve.json over the custom syslog-ng shipper) ----
+  // Real alert records with signature/severity/category — the syslog-ng side
+  // filters to event_type=alert, so everything arriving here should parse.
+  // alert_severity: 1 = highest — indexed (3 values) for the severity panels.
+  stage.match {
+    selector = `{logtype="suricata-eve"}`
+
+    stage.json {
+      expressions = {
+        signature      = "alert.signature",
+        alert_severity = "alert.severity",
+        category       = "alert.category",
+        src_ip         = "src_ip",
+        dest_ip        = "dest_ip",
+        dest_port      = "dest_port",
+      }
+    }
+    stage.labels {
+      values = { category = "", alert_severity = "" }
+    }
+  }
+
+  // --- Firewall (filterlog CSV) --------------------------------------------
+  // IPv4 and IPv6 filterlog have different field layouts, so rather than count
+  // fixed fields we anchor on action/dir/ipversion, then lazily skip to the
+  // src,dst pair (the only two consecutive IP-shaped tokens) with optional
+  // ports (ICMP has none). Validated 100% against real v4+v6 lines.
+  stage.match {
+    selector = `{logtype="filterlog"}`
+
+    stage.regex {
+      expression = `,(?P<action>pass|block|rdr|nat),(?P<direction>in|out),(?P<ipversion>[46]),.*?,(?P<src_ip>(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F]*:[0-9a-fA-F:]+),(?P<dest_ip>(?:\d{1,3}\.){3}\d{1,3}|[0-9a-fA-F]*:[0-9a-fA-F:]+)(?:,(?P<src_port>\d+),(?P<dest_port>\d+))?`
+    }
+    stage.labels {
+      values = { action = "" }
+    }
+  }
+
+{% if alloy_geoip_enabled | bool %}
+  // --- GeoIP enrichment of the source IP -----------------------------------
+  stage.geoip {
+    source  = "src_ip"
+    db      = "{{ alloy_geoip_db_path }}"
+    db_type = "city"
+  }
+  // Country code is low-cardinality -> index it (topk / table panels).
+  stage.labels {
+    values = { geoip_country_code = "" }
+  }
+  // City + lat/lon are high-cardinality -> structured metadata (not indexed),
+  // so the Geomap panel reads coordinates without inflating the label index.
+  stage.structured_metadata {
+    values = {
+      geoip_location_latitude  = "",
+      geoip_location_longitude = "",
+      geoip_city_name          = "",
+      geoip_country_name       = "",
+      src_ip                   = "",
+      dest_ip                  = "",
+      signature                = "",
+    }
+  }
+{% endif %}
+}
+{% endif %}

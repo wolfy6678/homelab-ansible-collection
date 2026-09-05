@@ -1,0 +1,66 @@
+---
+# opnsense role — reconciles the firewall resources the homelab services depend
+# on via the OPNsense API (oxlorg.opnsense collection). This is deliberately a
+# thin, declarative slice: Unbound DNS host overrides for the Caddy reverse
+# proxy, plus an optional monitoring scrape rule. Interface assignment, NAT
+# port-forwards, system settings and certs are NOT managed here — they live in
+# your committed config.xml backup. See docs/opnsense.md.
+
+# Master gate — overridden to true in group_vars/opnsense/main.yml once the API
+# is set up. When false the whole role is a no-op, so a full site run never
+# requires
+# OPNsense API access (same pattern as mosquitto_enabled / backup_enabled).
+opnsense_manage_enabled: false
+
+# --- API connection (consumed by the playbook's module_defaults) -----------
+# OPNsense ships a self-signed web cert, so verification is off by default
+# (matches proxmox_tls_insecure). Set true + trust the firewall CA to verify.
+opnsense_ssl_verify: false
+
+opnsense_api_key: >-
+  {{ undef(hint='Set opnsense_api_key to an OPNsense API key (System > Access >
+  Users > API keys) in group_vars/opnsense/main.yml') }}
+opnsense_api_secret: >-
+  {{ undef(hint='Set opnsense_api_secret to the matching OPNsense API secret
+  (vault-encrypt it in group_vars/opnsense/main.yml)') }}
+
+# --- Unbound DNS host overrides (Caddy) ------------------------------------
+# Must match caddy_base_domain. The .homelab.lan namespace is owned entirely by
+# the Caddy reverse proxy here (real hosts use .homelab), so a single wildcard A
+# record is safe and tracks new Caddy sites with zero upkeep.
+opnsense_unbound_domain: homelab.lan
+opnsense_unbound_wildcard: true
+# Caddy LXC IP, derived from inventory so it tracks the inventory. Guarded, so
+# an inventory with no `caddy` group renders empty and the role's preflight
+# assert names the variable to set instead of failing inside a module call.
+opnsense_caddy_ip: >-
+  {{ hostvars[groups['caddy'][0]].ansible_host
+     if (groups['caddy'] | default([])) else '' }}
+
+# Explicit per-name overrides, used ONLY when opnsense_unbound_wildcard is false.
+# Each becomes  <hostname>.{{ opnsense_unbound_domain }} -> value (default the
+# Caddy IP). Derived from the caddy_sites names (group_vars/caddy) via hostvars,
+# so a site added or renamed there gets its LAN DNS record automatically —
+# and headscale's public `vpn` name stays excluded because it is not a Caddy
+# site. Override in group_vars/opnsense only to add extra records (each entry:
+# hostname, plus optional domain/value/description).
+opnsense_unbound_hosts: >-
+  {{ (hostvars[groups['caddy'][0]].caddy_sites | default([])
+      | map(attribute='name')
+      | map('community.general.dict_kv', 'hostname')
+      | list)
+     if (groups['caddy'] | default([])) else [] }}
+
+# --- Optional: monitoring scrape firewall rule -----------------------------
+# Off by default — the stock "LAN -> This Firewall" allow usually already lets
+# the monitoring LXC scrape OPNsense's os-node_exporter (9100) / os-telegraf
+# (9273). Enable only if you've locked down LAN->firewall traffic. Creates one
+# pass rule per port (OPNsense rules take a single port/range, not a list).
+opnsense_monitoring_rule_enabled: false
+opnsense_monitoring_interface: lan
+opnsense_monitoring_source: >-
+  {{ hostvars[groups['monitoring'][0]].ansible_host
+     if (groups['monitoring'] | default([])) else '' }}
+opnsense_monitoring_ports:
+  - 9100
+  - 9273

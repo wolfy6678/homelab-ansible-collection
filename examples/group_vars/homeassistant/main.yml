@@ -1,0 +1,35 @@
+---
+# Home Assistant Core, installed into a venv. See roles/homeassistant/README.md.
+#
+# Everything below is optional — with no overrides the role installs HA and
+# starts it, and you do the rest of the onboarding in the browser at :8123.
+
+# --- FoxESS Modbus (solar inverter), optional -------------------------------
+# Reads the inverter directly over Modbus, no cloud. Needs no deploy-time
+# secrets: the role installs the custom component, then you add "FoxESS -
+# Modbus" in the HA UI and enter the connection (for a Modbus TCP adapter:
+# inverter IP, port 502, and the slave/Device ID — default 247).
+# homeassistant_foxess_enabled: true
+
+# --- Hildebrand Glow, optional ----------------------------------------------
+# Two mutually exclusive routes to UK smart-meter data:
+#
+# 1. Cloud (DCC/Bright API): ~30 min delayed half-hourly data, no hardware.
+#    Install the component and configure it in the UI:
+#      homeassistant_glow_dcc_enabled: true
+#    Or have Ansible drive HA's config-flow API so a rebuilt HA reconfigures
+#    itself (needs an admin long-lived token from your HA profile > Security):
+#      homeassistant_glow_dcc_autoconfigure: true
+#      homeassistant_glow_dcc_username: !vault | ...
+#      homeassistant_glow_dcc_password: !vault | ...
+#      homeassistant_api_token: !vault | ...
+#
+# 2. Local MQTT (Glow IHD/CAD stick): near real-time. Enable the broker with
+#    mosquitto_enabled in group_vars/mosquitto, then:
+#      homeassistant_glow_mqtt_enabled: true
+#      homeassistant_glow_mqtt_device_id: "<12-hex MAC from the device topic>"
+#    Set homeassistant_glow_mqtt_gas: false for an electricity-only supply.
+#
+# Either route can wire its sensors into HA's Energy dashboard
+# (*_energy_dashboard, on by default). That is non-destructive: a source is
+# added only when none of that type exists.

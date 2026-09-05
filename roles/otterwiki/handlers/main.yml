@@ -1,0 +1,6 @@
+---
+- name: Restart otterwiki
+  ansible.builtin.systemd_service:
+    name: otterwiki
+    state: restarted
+    daemon_reload: true

@@ -1,0 +1,67 @@
+---
+# Grafana Alloy — log collector. Two deployment shapes from the same role:
+#   * monitoring LXC (all defaults on, as in examples/playbooks/monitoring.yml):
+#     receives
+#     remote syslog from OPNsense (Suricata IDS + firewall/filterlog), parses
+#     it, GeoIP-enriches the source IP, AND collects the local journal.
+#   * every other host (examples/playbooks/alloy-agent.yml, which sets
+#     alloy_syslog_enabled/alloy_geoip_enabled false): journal-only agent
+#     shipping journald to Loki on the monitoring LXC — feeds the
+#     "Homelab Logs" Grafana dashboard.
+# Installed from the upstream release zip (pinned) — same binary-download
+# pattern as loki/prometheus/gatus.
+alloy_version: v1.17.1
+alloy_user: alloy
+alloy_install_dir: /opt/alloy
+alloy_config_dir: /etc/alloy
+alloy_data_dir: /var/lib/alloy
+alloy_http_port: 12345 # Alloy's own UI/metrics (localhost only)
+
+# --- OPNsense syslog pipeline (monitoring LXC only) ---------------------------
+# Syslog listener OPNsense ships to. Point OPNsense's remote syslog target at
+# <monitoring-lxc>:{{ alloy_syslog_port }} over {{ alloy_syslog_protocol }},
+# RFC5424 format (see docs/opnsense.md). 1514 is unprivileged.
+alloy_syslog_enabled: true
+alloy_syslog_port: 1514
+alloy_syslog_protocol: tcp
+alloy_syslog_format: rfc5424
+# Suricata eve.json alert lines can far exceed the 8k syslog default (they
+# carry the full alert metadata), so allow long messages.
+alloy_syslog_max_message_length: 32768
+
+# --- journald collection (every host) -----------------------------------------
+# Ships the systemd journal to Loki with host/unit/priority labels. The host
+# label is the inventory short name, matching the Prometheus `instance` label.
+alloy_journal_enabled: true
+alloy_journal_max_age: 24h
+
+# Loki push endpoint — Loki lives on the monitoring LXC; the URL is derived
+# from the inventory so the same default works for the co-located collector
+# and the remote journal agents. Guarded, so an inventory with no `monitoring`
+# group yields an empty string and the role's preflight assert explains what to
+# set rather than the template failing on a missing group. Override this to
+# push to a Loki that isn't in the inventory.
+alloy_loki_port: 3100
+alloy_loki_push_url: >-
+  {{ ('http://' ~ hostvars[groups['monitoring'][0]].ansible_host
+      ~ ':' ~ alloy_loki_port ~ '/loki/api/v1/push')
+     if (groups['monitoring'] | default([])) else '' }}
+
+# --- GeoIP -------------------------------------------------------------------
+# Enriches the source IP with country (indexed label) + city/lat/lon (structured
+# metadata, for the Geomap panel). Defaults to the DB-IP City Lite database:
+# free, CC-BY, NO signup/key (unlike MaxMind GeoLite2). The URL carries the
+# current year-month; a previous-month fallback covers the first days of a month
+# before that month's file publishes. To use MaxMind instead, set
+# alloy_geoip_db_url to its download URL (and it still lands at the same path).
+alloy_geoip_enabled: true
+alloy_geoip_dir: "{{ alloy_data_dir }}/geoip"
+alloy_geoip_db_path: "{{ alloy_geoip_dir }}/geoip-city.mmdb"
+alloy_geoip_month: "{{ ansible_date_time.year }}-{{ ansible_date_time.month }}"
+alloy_geoip_db_url: "https://download.db-ip.com/free/dbip-city-lite-{{ alloy_geoip_month }}.mmdb.gz"
+alloy_geoip_db_url_prev: >-
+  https://download.db-ip.com/free/dbip-city-lite-{{
+    '%04d-%02d' | format(
+      (ansible_date_time.year | int) - (1 if (ansible_date_time.month | int) == 1 else 0),
+      12 if (ansible_date_time.month | int) == 1 else (ansible_date_time.month | int) - 1
+    ) }}.mmdb.gz

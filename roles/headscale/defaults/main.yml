@@ -1,0 +1,160 @@
+---
+# Headscale (https://headscale.net) — self-hosted control server for the
+# Tailscale mesh VPN, co-installed with a Tailscale subnet router on the same
+# LXC so a single node exposes the whole homelab LAN to remote devices.
+
+headscale_version: "0.29.1"
+headscale_config_dir: /etc/headscale
+headscale_lib_dir: /var/lib/headscale
+
+# --- Control server (headscale) -------------------------------------------
+
+# Public HTTPS URL that remote devices (your phone) use to reach headscale.
+# REQUIRED — set it in group_vars/headscale/main.yml.  You must ALSO create a
+# public DNS record for this hostname pointing at your home's public IP and
+# port-forward TCP 443 to this LXC (see group_vars/headscale/main.yml).
+headscale_server_url: >-
+  {{ undef(hint='Set headscale_server_url to the public HTTPS URL for headscale,
+  e.g. https://vpn.example.com (set it in group_vars/headscale/main.yml; you must
+  also add a public DNS record for it and port-forward TCP 443 to this LXC)') }}
+
+# Built-in Let's Encrypt TLS.  When true headscale listens on :443 and obtains
+# a certificate via the TLS-ALPN-01 challenge (only port 443 needs forwarding).
+# Set false to serve plain HTTP on :8080 instead (e.g. behind your own proxy).
+headscale_tls_enabled: true
+headscale_listen_addr: "0.0.0.0"
+headscale_listen_port: "{{ 443 if headscale_tls_enabled | bool else 8080 }}"
+# Hostname Let's Encrypt issues the cert for — derived from server_url.
+headscale_tls_hostname: "{{ (headscale_server_url | urlsplit('hostname')) if headscale_tls_enabled | bool else '' }}"
+# Optional but recommended — email for Let's Encrypt expiry notices.
+headscale_acme_email: ""
+# ACME directory. Defaults to Let's Encrypt PRODUCTION. To debug the challenge
+# path without burning production's failed-validation limit (5/hostname/hour),
+# temporarily point at STAGING:
+#   headscale_acme_url: https://acme-staging-v02.api.letsencrypt.org/directory
+# Staging issues an UNTRUSTED cert, so the readiness gate + clients won't trust it
+# (confirm success via `journalctl -u headscale` instead). autocert caches certs
+# per-hostname regardless of directory, so DELETE {{ headscale_lib_dir }}/cache
+# before switching back to production or the stale staging cert keeps being served.
+headscale_acme_url: https://acme-v02.api.letsencrypt.org/directory
+
+# MagicDNS base domain for tailnet nodes — must NOT be a suffix of the
+# server_url hostname.  Global resolvers handed to connecting clients.
+headscale_base_domain: homelab.internal
+headscale_dns_nameservers:
+  - 1.1.1.1
+  - 1.0.0.1
+
+# Split (restricted) DNS: a {domain: [nameservers]} map whose zones are resolved
+# by the given resolver instead of the globals above. Set this so REMOTE tailnet
+# clients can resolve LAN-only, split-horizon reverse-proxy hostnames — names
+# with no public A record that only your LAN resolver knows. Queries reach that
+# resolver over the approved subnet route (the subnet router SNATs them to its
+# own LAN IP), so no firewall ACL change is needed.
+#
+# The zone should match your reverse proxy's base domain. Empty ({}) disables
+# split DNS, which is the default: the zone and resolver are site-specific, so
+# set them in your inventory's group_vars, e.g.
+#
+#   headscale_dns_split:
+#     example.com:
+#       - 192.168.50.1
+#
+# NB the co-located subnet-router client runs with --accept-dns=false, so this
+# only affects the phones/laptops you enrol, never the LXC itself.
+headscale_dns_split: {}
+
+# Tailnet user that owns the registered nodes (created idempotently).
+headscale_tailnet_user: homelab
+
+# Prometheus metrics endpoint (headscale_metrics_listen_addr) is declared in
+# group_vars/headscale/main.yml, NOT here: the monitoring LXC's prometheus
+# template reads it via hostvars to build the scrape target, and role defaults
+# are invisible in hostvars. Same for the headscale_fail2ban_*_enabled flags
+# and the exporter port below.
+
+# --- Tailnet ACL (restrict what enrolled devices can reach) -----------------
+
+# When true the role templates an ACL policy (policy v2, HuJSON) and points
+# headscale at it, replacing the default allow-all: enrolled devices can then
+# reach ONLY headscale_acl_dsts over the approved subnet route. Set false to
+# remove the policy file and return to allow-all.
+headscale_acl_enabled: true
+headscale_acl_policy_path: "{{ headscale_config_dir }}/policy.hujson"
+
+# Who the rules apply to. "*" (every tailnet device) — deliberately NOT the
+# tailnet user: headscale loads the policy at startup, but on a fresh deploy
+# the user is only created after the server is up, so a user reference would
+# be a chicken-and-egg; with a single-user tailnet "*" is equivalent anyway.
+headscale_acl_srcs:
+  - "*"
+
+# LAN resolver enrolled devices are allowed to query (host or IP, port 53 is
+# added automatically). Site-specific, so empty by default — set it in your
+# inventory's group_vars to the resolver serving headscale_dns_split's zone,
+# otherwise remote clients can't resolve your split-horizon hostnames.
+headscale_acl_dns_server: ""
+
+# What enrolled devices may reach (Tailscale ACL dst syntax). Default: the LAN
+# resolver above (needed by the headscale_dns_split zone) + the Caddy reverse
+# proxy, which fronts every web UI — so the clean-hostname workflow keeps
+# working while SSH, hypervisor/firewall admin UIs and direct service ports are
+# no longer reachable from a (potentially lost/stolen) remote device. ICMP is
+# auto-allowed between pairs matching a rule. Add "<your-lan>/24:*" to restore
+# full LAN access.
+headscale_acl_dsts: >-
+  {{ ([headscale_acl_dns_server ~ ':53'] if headscale_acl_dns_server else [])
+     + ([hostvars[groups['caddy'][0]].ansible_host ~ ':80,443']
+        if groups['caddy'] | default([]) else []) }}
+
+# --- fail2ban (public-endpoint protection) ----------------------------------
+
+# headscale is the homelab's only internet-exposed service (OPNsense forwards
+# TCP 443 here) and its journal shows constant scanner noise, so fail2ban bans
+# sources that spray junk TLS handshakes or 4xx path probes. Reads the systemd
+# journal directly; bans via nftables. Disabling this later does NOT uninstall
+# fail2ban — apt purge it by hand.
+# headscale_fail2ban_enabled is declared in group_vars/headscale/main.yml (the
+# prometheus template gates the fail2ban scrape job on it via hostvars).
+# 6 bad hits inside 10 minutes => banned for 1h (bantime.increment doubles it
+# for repeat offenders). Legit clients speak clean TLS and rarely 4xx, so they
+# don't trip it; if you ever ban yourself anyway, SSH in from the LAN and run
+#   fail2ban-client set headscale unbanip <ip>
+# (the ban only covers the headscale port — nothing else is exposed).
+headscale_fail2ban_maxretry: 6
+headscale_fail2ban_findtime: 10m
+headscale_fail2ban_bantime: 1h
+# NEVER ban these. The LAN entry is essential, not cosmetic: the Gatus health
+# check TCP-probes port 443 every minute from the homepage LXC, and each probe
+# logs the exact "TLS handshake error ... EOF" line the filter matches — the
+# homepage LXC would be banned within minutes (verified in the live journal).
+headscale_fail2ban_ignoreip:
+  - 127.0.0.1/8
+  - "::1"
+  - "{{ headscale_advertise_routes }}"
+
+# Prometheus exporter for the jail (ban/failure counts -> the monitoring LXC;
+# gitlab.com/hctrdev/fail2ban-prometheus-exporter, pinned tarball — same
+# binary-download pattern as node_exporter). Only installed while
+# headscale_fail2ban_enabled is also true; disabling later stops managing the
+# service but does not uninstall it (same policy as fail2ban itself).
+# headscale_fail2ban_exporter_enabled + _port are declared in
+# group_vars/headscale/main.yml (read by the prometheus template via hostvars).
+headscale_fail2ban_exporter_version: "0.10.3"
+headscale_fail2ban_exporter_install_dir: /opt/fail2ban-exporter
+
+# --- Subnet router (tailscale) --------------------------------------------
+
+# LAN prefix advertised to the tailnet so remote devices can reach every
+# homelab service through this one node (a "subnet router"). Override this in
+# your inventory's group_vars to match your own LAN.
+headscale_advertise_routes: "192.168.0.0/24"
+# given_name the subnet-router node registers under (used to find + approve it).
+headscale_router_hostname: homelab-subnet-router
+headscale_preauthkey_expiration: "999d"
+
+# URL the LOCAL tailscale client uses to reach the co-located control server.
+# With TLS on it uses the public hostname (resolved to 127.0.0.1 via an
+# /etc/hosts override the role adds, so the public cert still validates);
+# without TLS it talks plain HTTP to localhost.
+headscale_local_login_url: "{{ headscale_server_url if headscale_tls_enabled | bool else 'http://127.0.0.1:' ~ headscale_listen_port }}"

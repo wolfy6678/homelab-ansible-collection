@@ -1,0 +1,15 @@
+---
+# proxmox_node role — post-install configuration of the PVE host. The defaults
+# (no-subscription apt repos + the LXC OS template) are idempotent and run on
+# every deploy. See docs/proxmox-node.md for the bare-metal seed this does NOT
+# cover.
+
+# Optional: suppress the "No valid subscription" login dialog. Cosmetic, and
+# reverted by proxmox-widget-toolkit updates.
+# proxmox_node_remove_subscription_nag: true
+
+# Optional: create a least-privilege PVE role + user + API token for Terraform
+# instead of using root@pam. Create-only — the token secret is printed ONCE, so
+# copy it into terraform.yml (vault-encrypted) and switch
+# terraform_proxmox_user/terraform_proxmox_token_id over.
+# proxmox_node_terraform_user_enabled: true

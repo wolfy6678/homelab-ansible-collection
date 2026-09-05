@@ -1,0 +1,16 @@
+[Unit]
+Description=Grafana Alloy log collector
+After=network-online.target loki.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ alloy_user }}
+ExecStart=/usr/local/bin/alloy run {{ alloy_config_dir }}/config.alloy \
+  --storage.path={{ alloy_data_dir }} \
+  --server.http.listen-addr=127.0.0.1:{{ alloy_http_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

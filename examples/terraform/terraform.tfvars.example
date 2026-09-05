@@ -1,0 +1,11 @@
+# Only needed when running terraform by hand — the Ansible role passes these in
+# from group_vars/proxmox/terraform.yml on every run.
+#
+# Copy to terraform.tfvars and keep it out of version control.
+
+proxmox_api_url      = "https://pve.example.lan:8006/api2/json"
+proxmox_user         = "root@pam"
+proxmox_password     = "changeme"
+proxmox_lxc_password = "changeme"
+proxmox_lvm_storage  = "local-lvm"
+proxmox_ssh_key      = "ssh-ed25519 AAAA... ansible"

@@ -1,0 +1,14 @@
+---
+# Jellyfin install: add the apt repo and bring the service up, automate the
+# first-run setup wizard via the /Startup API, then reconcile the media
+# libraries. The wizard and library steps both drive the HTTP API, so they run
+# after the service is started.
+
+- name: Install Jellyfin and start the service
+  ansible.builtin.import_tasks: install.yml
+
+- name: Run the first-time setup wizard
+  ansible.builtin.import_tasks: wizard.yml
+
+- name: Reconcile media libraries
+  ansible.builtin.import_tasks: libraries.yml

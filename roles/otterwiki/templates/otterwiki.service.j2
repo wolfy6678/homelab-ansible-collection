@@ -1,0 +1,19 @@
+[Unit]
+Description=An Otter Wiki
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ otterwiki_user }}
+{% if otterwiki_port | int < 1024 %}
+# Unprivileged user binding a privileged port
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+{% endif %}
+Environment=OTTERWIKI_SETTINGS={{ otterwiki_config_dir }}/settings.cfg
+ExecStart={{ otterwiki_venv_dir }}/bin/gunicorn otterwiki.server:app --bind 0.0.0.0:{{ otterwiki_port }} --workers {{ otterwiki_gunicorn_workers }} --access-logfile -
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,89 @@
+---
+- name: Template headscale config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ headscale_config_dir }}/config.yaml"
+    owner: root
+    group: headscale
+    mode: "0640"
+  notify: Restart headscale
+
+# The ACL policy must exist before the (re)start below — config.yaml points at
+# it and headscale refuses to start on a missing/invalid policy file. Loaded
+# only at startup, so changes need the restart handler. A load failure surfaces
+# at the "Wait until headscale is serving" gate (check journalctl -u headscale).
+- name: Template the tailnet ACL policy
+  ansible.builtin.template:
+    src: policy.hujson.j2
+    dest: "{{ headscale_acl_policy_path }}"
+    owner: root
+    group: headscale
+    mode: "0640"
+  notify: Restart headscale
+  when: headscale_acl_enabled | bool
+
+- name: Remove the tailnet ACL policy (allow-all)
+  ansible.builtin.file:
+    path: "{{ headscale_acl_policy_path }}"
+    state: absent
+  notify: Restart headscale
+  when: not headscale_acl_enabled | bool
+
+# Point the public hostname at the loopback so the LOCAL tailscale client can
+# reach the co-located control server over TLS with a valid certificate (the
+# cert is issued for the public name; SNI still matches). External clients are
+# unaffected — they resolve the real public DNS record.
+- name: Resolve the headscale hostname to loopback for the local client
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.0.1 {{ headscale_tls_hostname }}"
+    regexp: " {{ headscale_tls_hostname }}$"
+    state: present
+  when: headscale_tls_enabled | bool
+
+- name: Enable and start headscale
+  ansible.builtin.systemd_service:
+    name: headscale
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# Apply any pending config restart before probing, so the readiness check and
+# the CLI below run against the freshly configured server.
+- name: Apply pending headscale restart
+  ansible.builtin.meta: flush_handlers
+
+# With TLS on, the very first start blocks on Let's Encrypt issuing a cert over
+# TLS-ALPN-01, which needs the public DNS record + port 443 forwarded to reach
+# this LXC. If this step times out, that forwarding/DNS is almost certainly the
+# cause.
+- name: Wait until headscale is serving
+  ansible.builtin.uri:
+    url: "{{ headscale_local_login_url }}/health"
+    validate_certs: "{{ headscale_tls_enabled | bool }}"
+  register: headscale_health
+  until: headscale_health.status == 200
+  retries: 40
+  delay: 5
+
+- name: List the tailnet user
+  ansible.builtin.command: "headscale users list --name {{ headscale_tailnet_user }} --output json"
+  register: headscale_users
+  changed_when: false
+
+# An empty list is printed as JSON null (Go nil slice), hence the default.
+- name: Create tailnet user
+  ansible.builtin.command: "headscale users create {{ headscale_tailnet_user }}"
+  when: (headscale_users.stdout | from_json | default([], true) | length) == 0
+  changed_when: true
+
+# Re-read unconditionally so the id is available whether the user already
+# existed or was just created.
+- name: Read the tailnet user id
+  ansible.builtin.command: "headscale users list --name {{ headscale_tailnet_user }} --output json"
+  register: headscale_users
+  changed_when: false
+
+- name: Record the tailnet user id
+  ansible.builtin.set_fact:
+    headscale_user_id: "{{ (headscale_users.stdout | from_json)[0].id }}"

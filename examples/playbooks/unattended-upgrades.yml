@@ -1,0 +1,5 @@
+---
+- name: Configure automatic security upgrades
+  hosts: lxc
+  roles:
+    - homelab.core.unattended_upgrades

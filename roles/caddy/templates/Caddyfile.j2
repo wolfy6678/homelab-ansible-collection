@@ -1,0 +1,48 @@
+# Managed by Ansible — do not edit on the host
+{% if caddy_tls_mode == 'acme' %}
+{% if caddy_acme_email %}
+{
+	email {{ caddy_acme_email }}
+}
+{% endif %}
+# DNS-01 challenge for every site (real certs without exposing the LAN services).
+# NOTE: resolvers must live in a per-site `tls { dns … }` block — the global
+# `acme_dns` option silently ignores a resolvers sub-directive (validates fine but
+# emits nothing). resolvers points the ACME propagation self-check at public DNS
+# instead of the split-horizon LAN resolver, which is authoritative for
+# {{ caddy_base_domain }} on the LAN and so can't see the public _acme-challenge TXTs.
+(tls_dns) {
+	tls {
+		dns {{ caddy_dns_provider }} {env.CADDY_DNS_API_TOKEN}
+{% if caddy_dns_resolvers %}
+		resolvers {{ caddy_dns_resolvers | join(' ') }}
+{% endif %}
+{% if caddy_dns_propagation_delay %}
+		propagation_delay {{ caddy_dns_propagation_delay }}
+{% endif %}
+{% if caddy_dns_propagation_timeout %}
+		propagation_timeout {{ caddy_dns_propagation_timeout }}
+{% endif %}
+	}
+}
+{% endif %}
+{% for site in caddy_sites %}
+{{ site.name }}.{{ caddy_base_domain }} {
+{% if caddy_tls_mode == 'internal' %}
+	tls internal
+{% elif caddy_tls_mode == 'acme' %}
+	import tls_dns
+{% endif %}
+{% if site.paths is defined %}
+{% if site.default_redirect is defined %}
+	redir / {{ site.default_redirect }}
+{% endif %}
+{% for p in site.paths %}
+	reverse_proxy {{ p.path }} {{ p.upstream }}
+{% endfor %}
+{% else %}
+	reverse_proxy {{ site.upstream }}
+{% endif %}
+}
+
+{% endfor %}

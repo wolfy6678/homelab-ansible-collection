@@ -1,0 +1,96 @@
+---
+# Whole role is gated on monitoring_trmnl_enabled (default false) so it is a no-op
+# until opted in. When enabled it installs a script + systemd timer that POSTs
+# a compact infra-health summary to a TRMNL private-plugin webhook; when
+# disabled it tears the same down. Runs on the monitoring LXC (Prometheus local).
+- name: Enable the homelab TRMNL push
+  when: monitoring_trmnl_enabled | bool
+  block:
+    - name: Assert the TRMNL webhook UUID is set
+      ansible.builtin.assert:
+        that:
+          - monitoring_trmnl_webhook_uuid is defined
+          - monitoring_trmnl_webhook_uuid | string | length > 0
+        fail_msg: >-
+          monitoring_trmnl_enabled is true but monitoring_trmnl_webhook_uuid is not set.
+          Create a TRMNL private plugin (Webhook strategy) and set its UUID
+          (vault-encrypted) in group_vars/monitoring/main.yml.
+      no_log: true  # the value is a secret
+
+    - name: Install the push script
+      ansible.builtin.copy:
+        src: trmnl-homelab-push.py
+        dest: "{{ monitoring_trmnl_script_path }}"
+        owner: root
+        group: root
+        mode: "0755"
+      notify: Push to TRMNL now
+
+    - name: Create the env directory
+      ansible.builtin.file:
+        path: "{{ monitoring_trmnl_env_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Template the webhook env file
+      ansible.builtin.template:
+        src: homelab.env.j2
+        dest: "{{ monitoring_trmnl_env_dir }}/homelab.env"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: Push to TRMNL now
+
+    - name: Install the systemd service
+      ansible.builtin.template:
+        src: trmnl-homelab-push.service.j2
+        dest: /etc/systemd/system/trmnl-homelab-push.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Reload systemd
+        - Push to TRMNL now
+
+    - name: Install the systemd timer
+      ansible.builtin.template:
+        src: trmnl-homelab-push.timer.j2
+        dest: /etc/systemd/system/trmnl-homelab-push.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    # Make any unit change live (and fire a validating push) before enabling.
+    - name: Apply pending unit changes
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the timer
+      ansible.builtin.systemd_service:
+        name: trmnl-homelab-push.timer
+        enabled: true
+        state: started
+
+- name: Remove the homelab TRMNL push
+  when: not (monitoring_trmnl_enabled | bool)
+  block:
+    - name: Stop and disable the timer
+      ansible.builtin.systemd_service:
+        name: trmnl-homelab-push.timer
+        enabled: false
+        state: stopped
+      failed_when: false
+
+    - name: Remove installed files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/trmnl-homelab-push.timer
+        - /etc/systemd/system/trmnl-homelab-push.service
+        - "{{ monitoring_trmnl_script_path }}"
+        - "{{ monitoring_trmnl_env_dir }}/homelab.env"
+      notify: Reload systemd

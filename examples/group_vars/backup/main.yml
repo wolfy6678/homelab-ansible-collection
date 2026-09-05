@@ -1,0 +1,39 @@
+---
+# restic file-level backups of application data — encrypted, deduplicated and
+# off-site-capable. Complements the whole-container vzdump backups in
+# group_vars/proxmox/backup.yml. Off by default.
+# See roles/backup/README.md.
+#
+#   1. Stand up a restic-compatible destination: an SFTP or rest-server path on
+#      a NAS, or an off-site bucket (Backblaze B2, S3) — a bucket plus an
+#      application key is enough.
+#   2. Choose a strong repository password and KEEP A COPY OUTSIDE THE HOMELAB.
+#      Without it the backups cannot be recovered, by you or anyone.
+#   3. Vault-encrypt the password and any backend keys:
+#        ansible-vault encrypt_string --vault-id homelab@prompt '<value>' \
+#          --name 'backup_restic_password'
+#
+# backup_enabled: true
+# backup_restic_repository: sftp:backup@192.168.50.50:/srv/restic/homelab
+# backup_restic_password: !vault |
+#   ...
+#
+# Off-site (Backblaze B2): set the repository to b2:<bucket>:homelab and add
+# backup_restic_env:
+#   B2_ACCOUNT_ID: !vault | ...
+#   B2_ACCOUNT_KEY: !vault | ...
+
+# WHAT gets backed up, keyed by short hostname. Adding a host to the `backup`
+# inventory group is only half the job — a host with no entry here backs up
+# nothing and the run fails with a message saying so.
+backup_default_paths:
+  homeassistant:
+    - /home/homeassistant/.homeassistant
+  otterwiki:
+    - /var/lib/otterwiki
+  jellyfin:
+    - /var/lib/jellyfin
+
+# Daily at 03:00 with a 30-minute random spread, keeping 7 daily / 4 weekly /
+# 6 monthly snapshots. Override backup_schedule, backup_random_delay and
+# backup_retention to change that.

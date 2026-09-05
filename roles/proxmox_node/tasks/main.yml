@@ -1,0 +1,20 @@
+---
+- name: Configure APT repositories
+  ansible.builtin.include_tasks: repos.yml
+  when: proxmox_node_manage_repos | bool
+
+- name: Ensure LXC OS templates are present
+  ansible.builtin.include_tasks: templates.yml
+  when: proxmox_node_manage_templates | bool
+
+- name: Publish SMART disk-health metrics
+  ansible.builtin.include_tasks: smart.yml
+  when: proxmox_node_smart_metrics_enabled | bool
+
+- name: Remove the subscription nag (optional)
+  ansible.builtin.include_tasks: nag.yml
+  when: proxmox_node_remove_subscription_nag | bool
+
+- name: Provision the Terraform API user (optional)
+  ansible.builtin.include_tasks: api_user.yml
+  when: proxmox_node_terraform_user_enabled | bool

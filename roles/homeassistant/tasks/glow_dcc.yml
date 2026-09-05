@@ -1,0 +1,30 @@
+---
+# Hildebrand Glow (DCC): config-flow integration, so no YAML package — the role just
+# installs the custom component; credentials are entered in the HA UI after deploy.
+# Mutually exclusive with the local-MQTT route: this cloud/Bright-API path is only
+# installed when Mosquitto is OFF. mosquitto_enabled comes from group_vars/mosquitto
+# (the HA LXC is in that group too) and takes precedence — enabling Mosquitto
+# removes this integration in glow_dcc_teardown.yml.
+
+- name: Clone Hildebrand Glow (DCC) repository
+  ansible.builtin.git:
+    repo: "{{ homeassistant_glow_dcc_repo }}"
+    dest: /opt/ha-hildebrandglow-dcc
+    version: "{{ homeassistant_glow_dcc_version }}"
+  when:
+    - homeassistant_glow_dcc_enabled
+    - not (mosquitto_enabled | default(false))
+  register: homeassistant_glow_dcc_git_clone
+
+- name: Install Hildebrand Glow (DCC) custom component
+  ansible.builtin.copy:
+    src: /opt/ha-hildebrandglow-dcc/custom_components/hildebrandglow_dcc/
+    dest: "{{ homeassistant_config_dir }}/custom_components/hildebrandglow_dcc/"
+    remote_src: true
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: preserve
+  when:
+    - homeassistant_glow_dcc_enabled
+    - not (mosquitto_enabled | default(false))
+  notify: Restart homeassistant

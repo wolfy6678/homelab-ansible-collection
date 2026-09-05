@@ -1,0 +1,8 @@
+# Managed by Ansible — do not edit on the host
+# prometheus-pve-exporter module config. The token id is "user@realm!tokenname";
+# split into the user and token_name fields the exporter expects.
+default:
+  user: "{{ prometheus_pve_token_id.split('!')[0] }}"
+  token_name: "{{ prometheus_pve_token_id.split('!')[1] }}"
+  token_value: "{{ prometheus_pve_token_secret }}"
+  verify_ssl: {{ prometheus_pve_verify_ssl | bool | lower }}

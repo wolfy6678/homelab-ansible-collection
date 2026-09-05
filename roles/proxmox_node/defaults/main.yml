@@ -1,0 +1,67 @@
+---
+# proxmox_node role — post-install configuration of the Proxmox VE host itself
+# (the layer below the LXCs). Codifies what the rest of the repo assumes about a
+# fresh PVE node: the no-subscription APT repos and the LXC OS template, plus two
+# opt-in extras (subscription-nag removal, a dedicated Terraform API user). Runs
+# ON the PVE host over SSH. The bare-metal install and network/bridge setup
+# remain the manual seed — see docs/proxmox-node.md.
+
+# --- APT repositories ------------------------------------------------------
+# Replace the subscription-only enterprise repo with the no-subscription one so
+# apt works without a subscription. Canonical PVE 9 layout: a deb822 .sources
+# file with the suite = the Debian codename (trixie). Set false to leave apt
+# alone. Idempotent — a correctly configured host reports no change.
+proxmox_node_manage_repos: true
+proxmox_node_pve_repo_uri: http://download.proxmox.com/debian/pve
+proxmox_node_pve_repo_component: pve-no-subscription
+proxmox_node_pve_keyring: /usr/share/keyrings/proxmox-archive-keyring.gpg
+# Enterprise repo files to disable if present (no-ops when absent, as on a host
+# already switched to no-subscription).
+proxmox_node_enterprise_sources:
+  - /etc/apt/sources.list.d/pve-enterprise.sources
+  - /etc/apt/sources.list.d/ceph.sources
+
+# --- LXC OS templates ------------------------------------------------------
+# Ensure the container template the inventory/Terraform default references is
+# downloaded. Idempotent: skips when the file already exists in the cache.
+proxmox_node_manage_templates: true
+proxmox_node_template_cache: /var/lib/vz/template/cache
+proxmox_node_templates:
+  - storage: local
+    name: debian-13-standard_13.1-2_amd64.tar.zst
+
+# --- SMART disk-health metrics (on by default) ------------------------------
+# smartmontools + a systemd timer running files/smart_metrics.py, which writes
+# smartmon_* gauges (overall health, temperature, reallocated sectors, NVMe
+# wear/media errors) into node_exporter's textfile-collector directory — early
+# warning for a dying disk on the Proxmox dashboard + Grafana alerting.
+# Read-only against the disks, so on by default; set false to skip.
+proxmox_node_smart_metrics_enabled: true
+proxmox_node_smart_metrics_interval: 15min
+# node_exporter's textfile dir (node_exporter_textfile_dir, group_vars/all —
+# the collector also runs on this host when node_exporter targets the
+# lxc:proxmox pattern).
+proxmox_node_textfile_dir: "{{ node_exporter_textfile_dir }}"
+
+# --- Subscription nag (optional, off) --------------------------------------
+# Suppress the "No valid subscription" login dialog by patching the widget
+# toolkit JS. Cosmetic, reverted by proxmox-widget-toolkit updates, and guarded
+# so it patches only once. Opt-in.
+proxmox_node_remove_subscription_nag: false
+
+# --- Dedicated Terraform API user (optional, off) --------------------------
+# Create a least-privilege PVE role + user + API token for Terraform instead of
+# using root@pam. Create-only: the token secret is shown ONCE on creation — copy
+# it into group_vars/proxmox/terraform.yml (vault-encrypted) and switch
+# terraform_proxmox_user/token over. See docs/proxmox-node.md.
+proxmox_node_terraform_user_enabled: false
+proxmox_node_terraform_role: TerraformProv
+proxmox_node_terraform_user: terraform@pve
+proxmox_node_terraform_token_id: ansible
+# Privileges the telmate provider needs to manage LXCs (space-separated).
+proxmox_node_terraform_privs: >-
+  Datastore.Allocate Datastore.AllocateSpace Datastore.Audit
+  Pool.Allocate SDN.Use Sys.Audit Sys.Console Sys.Modify
+  VM.Allocate VM.Audit VM.Clone VM.Config.CDROM VM.Config.CPU
+  VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory
+  VM.Config.Network VM.Config.Options VM.Migrate VM.Monitor VM.PowerMgmt

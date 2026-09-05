@@ -1,0 +1,71 @@
+---
+# Prometheus + Grafana + Loki + Alloy, all on the monitoring container.
+# See roles/prometheus/README.md, roles/grafana/README.md, roles/loki/README.md,
+# roles/alloy/README.md.
+
+# --- Grafana ----------------------------------------------------------------
+# Seeds the initial admin login. A password later changed in the Grafana UI
+# lives in Grafana's own DB and need not be mirrored back here.
+# ansible-vault encrypt_string --vault-id homelab@prompt '<password>' --name 'grafana_admin_password'
+# grafana_admin_password: !vault |
+#   ...
+
+# --- Serving behind Caddy on one hostname, split by sub-path -----------------
+# These must stay in sync with the `monitoring` entry in caddy_sites.
+# Trailing slashes matter.
+grafana_root_url: "https://monitoring.example.com/grafana/"
+prometheus_external_url: "https://monitoring.example.com/prometheus/"
+prometheus_route_prefix: /prometheus
+# Grafana's datasource has to hit Prometheus's prefixed API. (Gatus reads
+# prometheus_route_prefix via hostvars, so it needs no separate setting.)
+grafana_prometheus_url: "http://localhost:9090/prometheus"
+
+# Leave these unset to serve both at the root instead.
+
+# --- Proxmox API metrics (prometheus-pve-exporter) --------------------------
+# Adds per-guest, storage and cluster metrics on top of the PVE host's
+# node_exporter. Set prometheus_pve_exporter_enabled: false to skip.
+#
+# Create a read-only API token first:
+#   1. PVE UI > Datacenter > Permissions > API Tokens > Add:
+#        User: root@pam (or a dedicated api-monitoring@pam)
+#        Token ID: pve-exporter   — leave Privilege Separation TICKED
+#      Note the secret; it is shown once.
+#   2. Datacenter > Permissions > Add > API Token Permission:
+#        Path: /   Token: <user>@pam!pve-exporter   Role: PVEAuditor
+#        Propagate: ticked
+prometheus_pve_token_id: "root@pam!pve-exporter"
+# prometheus_pve_token_secret: !vault |
+#   ...
+
+# pve-exporter re-resolves the PVE hostname on every API request (~20 per
+# scrape, because pveproxy doesn't keep connections alive), which floods the LAN
+# resolver. Pin it to the PVE host's IP here. Empty = no pin.
+prometheus_proxmox_pin_ip: 192.168.50.2
+
+# --- OPNsense metrics (optional) --------------------------------------------
+# See docs/opnsense.md for the plugin install steps. The provisioned OPNsense
+# dashboard is built against os-telegraf; os-node_exporter alone emits an
+# almost-empty metric set and will leave the board blank.
+# prometheus_opnsense_target: "192.168.50.1:9100"
+# prometheus_opnsense_telegraf_target: "192.168.50.1:9273"
+
+# --- Grafana alerting to Discord (optional) ---------------------------------
+# The infrastructure failures Gatus can't see: host down, disk/memory pressure,
+# stale or failed backups, expiring certificates, failing disks. Thresholds are
+# the grafana_alert_* role defaults.
+# grafana_discord_webhook_url: !vault |
+#   ...
+
+# --- Log pipeline -----------------------------------------------------------
+# Loki and Alloy run here too. To fill the OPNsense Security dashboard, ship the
+# firewall's syslog to this host on :1514/tcp in RFC5424 — see docs/opnsense.md.
+# Overridable: loki_retention (720h), alloy_syslog_port, alloy_geoip_enabled.
+# Setting grafana_loki_url to "" disables the Loki datasource and its dashboards.
+
+# --- TRMNL e-ink push (optional) --------------------------------------------
+# A systemd timer that queries Prometheus and POSTs a compact infra summary to a
+# private TRMNL plugin webhook. Outbound-only, so Grafana stays LAN-only.
+# monitoring_trmnl_enabled: true
+# monitoring_trmnl_webhook_uuid: !vault |
+#   ...

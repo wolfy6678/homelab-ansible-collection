@@ -1,0 +1,47 @@
+---
+# FoxESS Modbus (solar inverter) integration: a config-flow integration installed as a
+# custom component, so — like the Hildebrand Glow (DCC) component — there is no YAML
+# package; the connection is entered in the HA UI after deploy.
+
+# Remove artifacts from the former cloud integration (macxq/foxess-ha) so a host
+# migrated from it doesn't keep loading the now-absent `platform: foxess` sensor
+# package or the stale component. Idempotent no-op on fresh hosts.
+- name: Remove stale FoxESS cloud integration artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /opt/foxess-ha
+    - "{{ homeassistant_config_dir }}/custom_components/foxess"
+    - "{{ homeassistant_config_dir }}/packages/foxess.yaml"
+  notify: Restart homeassistant
+
+- name: Clone foxess_modbus repository
+  ansible.builtin.git:
+    repo: "{{ homeassistant_foxess_repo }}"
+    dest: /opt/foxess_modbus
+    version: "{{ homeassistant_foxess_version }}"
+  when: homeassistant_foxess_enabled
+
+# Shared prerequisite for both custom components: this is also where the
+# Hildebrand Glow (DCC) component (installed in glow_dcc.yml, which runs after
+# this file) lands, hence the combined condition.
+- name: Create custom_components directory
+  ansible.builtin.file:
+    path: "{{ homeassistant_config_dir }}/custom_components"
+    state: directory
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0755"
+  when: homeassistant_foxess_enabled or (homeassistant_glow_dcc_enabled and not (mosquitto_enabled | default(false)))
+
+- name: Install foxess_modbus custom component
+  ansible.builtin.copy:
+    src: /opt/foxess_modbus/custom_components/foxess_modbus/
+    dest: "{{ homeassistant_config_dir }}/custom_components/foxess_modbus/"
+    remote_src: true
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: preserve
+  when: homeassistant_foxess_enabled
+  notify: Restart homeassistant

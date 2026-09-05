@@ -1,0 +1,38 @@
+---
+# Orchestrates the Home Assistant install. Each stage lives in its own task
+# file: the Python runtime + HA install, the config tree, the optional
+# integrations (FoxESS, Hildebrand Glow via either the cloud DCC API or the
+# local-MQTT route), and the systemd service. Integration auto-configuration is
+# driven through HA's REST API and so must run after the service is up.
+
+- name: Install the Python runtime and Home Assistant
+  ansible.builtin.import_tasks: install.yml
+
+- name: Lay down the Home Assistant configuration
+  ansible.builtin.import_tasks: config.yml
+
+- name: Install the FoxESS Modbus integration
+  ansible.builtin.import_tasks: foxess.yml
+
+- name: Install the Hildebrand Glow (DCC) integration
+  ansible.builtin.import_tasks: glow_dcc.yml
+
+- name: Deploy and start the Home Assistant service
+  ansible.builtin.import_tasks: service.yml
+
+# Run the pending "Restart homeassistant" handler now (rather than at play end) so
+# that, when the Glow DCC component was just installed/updated, HA reloads and
+# registers its config-flow handler before the autoconfigure block drives it. A
+# no-op when nothing notified a restart. meta tasks ignore `when`, so this lives at
+# the top level instead of inside the conditional block below.
+- name: Flush handlers (restart HA if needed before driving its API)
+  ansible.builtin.meta: flush_handlers
+
+- name: Auto-configure the Hildebrand Glow (DCC) integration
+  ansible.builtin.import_tasks: glow_dcc_configure.yml
+
+- name: Tear down the Hildebrand Glow (DCC) integration when the MQTT route is in use
+  ansible.builtin.import_tasks: glow_dcc_teardown.yml
+
+- name: Configure the local-MQTT Glow route
+  ansible.builtin.import_tasks: glow_mqtt.yml

@@ -1,0 +1,99 @@
+---
+# restic file-level backups. Whole role is gated on backup_enabled (default
+# false) so it is a no-op on hosts that haven't opted in.
+- name: Configure restic backups
+  when: backup_enabled | bool
+  block:
+    - name: Fail when no backup paths are defined for this host
+      ansible.builtin.assert:
+        that: backup_paths | length > 0
+        fail_msg: >-
+          backup_enabled is true but no backup paths are set for
+          {{ inventory_hostname_short }}. Add an entry for it to
+          backup_default_paths in group_vars/backup/main.yml, or set
+          backup_paths directly on this host. See the backup role README.
+
+    - name: Install restic
+      ansible.builtin.apt:
+        name: restic
+        state: present
+        update_cache: true
+
+    - name: Create restic config directory
+      ansible.builtin.file:
+        path: /etc/restic
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Template restic environment file
+      ansible.builtin.template:
+        src: restic.env.j2
+        dest: /etc/restic/homelab.env
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    # The environment for the deploy-time init/check tasks (the systemd unit
+    # uses the env file above instead). no_log keeps the secrets out of output.
+    - name: Build restic environment
+      ansible.builtin.set_fact:
+        backup_restic_environment: >-
+          {{ {'RESTIC_REPOSITORY': backup_restic_repository,
+              'RESTIC_PASSWORD': backup_restic_password}
+             | combine(backup_restic_env) }}
+      no_log: true
+
+    - name: Check whether the restic repository is initialised
+      ansible.builtin.command:
+        cmd: restic cat config
+      environment: "{{ backup_restic_environment }}"
+      register: backup_repo_check
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Initialise the restic repository
+      ansible.builtin.command:
+        cmd: restic init
+      environment: "{{ backup_restic_environment }}"
+      when: backup_repo_check.rc != 0
+      changed_when: true
+      no_log: true
+
+    - name: Template restic backup wrapper script
+      ansible.builtin.template:
+        src: restic-backup.sh.j2
+        dest: /usr/local/bin/restic-backup
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Template restic backup service
+      ansible.builtin.template:
+        src: restic-backup.service.j2
+        dest: /etc/systemd/system/restic-backup.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Template restic backup timer
+      ansible.builtin.template:
+        src: restic-backup.timer.j2
+        dest: /etc/systemd/system/restic-backup.timer
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload systemd
+
+    - name: Flush handlers so the units are loaded before enabling the timer
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the restic backup timer
+      ansible.builtin.systemd_service:
+        name: restic-backup.timer
+        state: started
+        enabled: true

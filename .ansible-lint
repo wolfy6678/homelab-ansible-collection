@@ -1,0 +1,4 @@
+---
+# The strictest built-in profile — the standard every role here is held to.
+# Run `ansible-lint` from the collection root to reproduce CI.
+profile: production

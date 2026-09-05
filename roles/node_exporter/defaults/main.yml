@@ -1,0 +1,18 @@
+---
+# Prometheus node_exporter — host/OS metrics agent (CPU, memory, disk, network).
+# Installed on every LXC and on the Proxmox host — target `lxc:proxmox`, as
+# examples/playbooks/node-exporter.yml does. Listens on node_exporter_port and is scraped by the
+# Prometheus server on the monitoring LXC. Installed from the upstream release
+# tarball (pinned) — same binary-download pattern as the gatus role.
+node_exporter_version: v1.11.1
+node_exporter_port: 9100
+node_exporter_user: node_exporter
+node_exporter_install_dir: /opt/node_exporter
+
+# Textfile collector — a drop directory for .prom files written by local jobs,
+# scraped alongside the built-in collectors. Used by the backup role (restic
+# run metrics), the proxmox_node role (SMART disk health), and any job of your
+# own that writes .prom files there. Writers create the directory themselves
+# (mkdir -p) so they don't depend on role ordering.
+# node_exporter_textfile_dir is declared in group_vars/all/main.yml (the single
+# canonical copy — the backup and proxmox_node writers reference it).

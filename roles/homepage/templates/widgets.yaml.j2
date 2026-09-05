@@ -1,0 +1,7 @@
+---
+# Managed by Ansible — do not edit on the host
+# https://gethomepage.dev/widgets/
+#
+# The header "info" widgets, rendered from homepage_widgets. Passed through
+# verbatim, so any Homepage info widget works without a role change.
+{{ homepage_widgets | to_nice_yaml(indent=2) | trim }}

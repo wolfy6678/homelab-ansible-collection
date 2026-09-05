@@ -1,0 +1,56 @@
+---
+# Managed by Ansible — do not edit on the host
+# https://github.com/TwiN/gatus#configuration
+web:
+  port: {{ gatus_port | to_json }}
+
+# Health-check results as Prometheus metrics on /metrics (same port) — scraped
+# by the monitoring LXC to drive the Service Health panels in Grafana.
+metrics: true
+
+storage:
+  type: sqlite
+  path: {{ (gatus_data_dir ~ '/data.db') | to_json }}
+
+{% if gatus_discord_webhook_url is defined %}
+alerting:
+  discord:
+    webhook-url: {{ gatus_discord_webhook_url | to_json }}
+    default-alert:
+      send-on-resolved: true
+      failure-threshold: {{ gatus_alert_failure_threshold | to_json }}
+      success-threshold: {{ gatus_alert_success_threshold | to_json }}
+
+{% endif %}
+endpoints:
+{% for endpoint in gatus_endpoints %}
+  - name: {{ endpoint.name | to_json }}
+    group: {{ endpoint.group | default('services') | to_json }}
+    url: {{ endpoint.url | to_json }}
+    interval: {{ endpoint.interval | default(gatus_default_interval) | to_json }}
+    conditions:
+{% for condition in endpoint.conditions | default(["[STATUS] == 200"]) %}
+      - {{ condition | to_json }}
+{% endfor %}
+{% if gatus_discord_webhook_url is defined %}
+    alerts:
+      - type: discord
+{% endif %}
+{% endfor %}
+{% if gatus_certificate_base_domain %}
+{# Certificate-expiry checks of the Caddy clean hostnames — exports
+   gatus_results_certificate_expiration_seconds for the Service Uptime
+   dashboard + Grafana cert alert (see gatus_certificate_* in defaults). #}
+{% for site in gatus_certificate_sites %}
+  - name: {{ site | to_json }}
+    group: certificates
+    url: {{ ('https://' ~ site ~ '.' ~ gatus_certificate_base_domain) | to_json }}
+    interval: {{ gatus_certificate_check_interval | to_json }}
+    conditions:
+      - {{ ('[CERTIFICATE_EXPIRATION] > ' ~ gatus_certificate_min_validity) | to_json }}
+{% if gatus_discord_webhook_url is defined %}
+    alerts:
+      - type: discord
+{% endif %}
+{% endfor %}
+{% endif %}

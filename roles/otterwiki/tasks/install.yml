@@ -1,0 +1,17 @@
+---
+- name: Install OS dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - python3
+      - python3-venv
+      - python3-pip
+      - sudo
+    state: present
+    update_cache: true
+
+- name: Create otterwiki system user
+  ansible.builtin.user:
+    name: "{{ otterwiki_user }}"
+    system: true
+    create_home: false

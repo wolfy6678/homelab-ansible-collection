@@ -1,0 +1,47 @@
+---
+otterwiki_version: 2.20.6
+otterwiki_user: otterwiki
+otterwiki_venv_dir: /srv/otterwiki
+otterwiki_config_dir: /etc/otterwiki
+otterwiki_data_dir: /var/lib/otterwiki
+otterwiki_repository_dir: "{{ otterwiki_data_dir }}/repository"
+otterwiki_port: 80
+otterwiki_gunicorn_workers: 2
+otterwiki_site_name: Homelab Wiki
+
+# Permissions — ANONYMOUS, REGISTERED or APPROVED.  With no SMTP configured,
+# email confirmation is disabled and registrations are auto-approved, so
+# REGISTERED effectively means "anyone on the LAN who signs up".
+otterwiki_read_access: ANONYMOUS
+otterwiki_write_access: REGISTERED
+otterwiki_attachment_access: REGISTERED
+otterwiki_auto_approval: true
+
+# Admin user, created idempotently by the role (logins are by email).  The
+# password is only used at creation time — an existing user is never
+# modified, so changing it later in the UI is safe.  ADMIN_USER_EMAIL in
+# settings.cfg is also pinned to this email, so no other registration can
+# ever become admin.
+otterwiki_admin_name: admin
+otterwiki_admin_email: admin@homelab
+otterwiki_admin_password: >-
+  {{ undef(hint='Set otterwiki_admin_password to the wiki admin password (vault-encrypt it in group_vars/otterwiki/main.yml)') }}
+
+# Optional push-only mirroring of the wiki content to an external git remote,
+# e.g. a private GitHub repo.  Set otterwiki_git_push_url (NOT defined here)
+# in group_vars/otterwiki/main.yml to enable: OtterWiki then auto-pushes the
+# current branch after every wiki change, and the role pushes at deploy time
+# (which also validates the credentials — auto-push failures only show up in
+# the service log).  Use an SSH URL (git@github.com:<owner>/<repo>.git) with
+# otterwiki_git_push_private_key (NOT defined here; vault-encrypted private
+# half of a GitHub deploy key with write access) — a token-in-URL HTTPS
+# remote also works, but OtterWiki logs the URL on every push.
+# NOTE: settings saved in the admin UI's Repository management page are
+# stored in the DB and override these file-based values.
+
+# Signs the session cookie — must stay stable across runs or all sessions are
+# invalidated.  Generate with:
+#   python3 -c "import secrets; print(secrets.token_hex(32))"
+# and vault-encrypt it in group_vars/otterwiki/main.yml.
+otterwiki_secret_key: >-
+  {{ undef(hint='Set otterwiki_secret_key to a long random string (vault-encrypt it in group_vars/otterwiki/main.yml)') }}

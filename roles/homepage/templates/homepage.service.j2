@@ -1,0 +1,16 @@
+[Unit]
+Description=homepage
+
+[Service]
+Type=simple
+Restart=on-failure
+User=root
+WorkingDirectory={{ homepage_install_dir }}
+Environment=PORT={{ homepage_port }}
+Environment=HOSTNAME=0.0.0.0
+Environment=HOMEPAGE_ALLOWED_HOSTS={{ homepage_allowed_hosts }}
+Environment=NODE_ENV=production
+ExecStart=/usr/local/bin/pnpm start
+
+[Install]
+WantedBy=multi-user.target

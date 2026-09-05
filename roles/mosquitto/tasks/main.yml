@@ -1,0 +1,77 @@
+---
+# Everything is gated on mosquitto_enabled (default false), so this role does
+# nothing until the broker is wanted (e.g. when the Glow IHD/CAD arrives). When
+# disabled the play still runs against the Home Assistant LXC but skips every task.
+- name: Configure the Mosquitto MQTT broker
+  when: mosquitto_enabled
+  block:
+    - name: Install Mosquitto
+      ansible.builtin.apt:
+        name:
+          - mosquitto
+          - mosquitto-clients
+        state: present
+        update_cache: true
+
+    - name: Deploy broker listener configuration
+      ansible.builtin.template:
+        src: homelab.conf.j2
+        dest: /etc/mosquitto/conf.d/homelab.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart mosquitto
+
+    # mosquitto_passwd salts each hash, so the password file can't be templated
+    # idempotently — create it once (guarded by `creates`). To change the
+    # password later, delete /etc/mosquitto/passwd and re-run the role.
+    # The password goes in via stdin (the interactive prompt reads it twice),
+    # NOT -b: -b puts the secret in the process argv, world-readable through
+    # /proc/<pid>/cmdline while the command runs.
+    - name: Create the broker password file
+      ansible.builtin.command:
+        cmd: "mosquitto_passwd -c /etc/mosquitto/passwd {{ mosquitto_username }}"
+        stdin: "{{ mosquitto_password }}\n{{ mosquitto_password }}"
+        creates: /etc/mosquitto/passwd
+      no_log: true
+      notify: Restart mosquitto
+
+    # The mosquitto service runs as the 'mosquitto' user (created by the package),
+    # so it needs group-read on the password file; mosquitto_passwd writes it
+    # root-only by default.
+    - name: Secure the password file
+      ansible.builtin.file:
+        path: /etc/mosquitto/passwd
+        owner: root
+        group: mosquitto
+        mode: "0640"
+
+    - name: Enable and start mosquitto
+      ansible.builtin.systemd_service:
+        name: mosquitto
+        state: started
+        enabled: true
+        daemon_reload: true
+
+# Mutual exclusivity (vice versa): when Mosquitto is NOT the chosen Glow data path
+# (e.g. the DCC/Bright-API integration is in use), make sure the broker is removed
+# so the two routes don't run side by side. A no-op on a host that never had it
+# (apt reports absent, the files are already gone).
+- name: Remove the Mosquitto MQTT broker
+  when: not mosquitto_enabled
+  block:
+    - name: Remove Mosquitto packages
+      ansible.builtin.apt:
+        name:
+          - mosquitto
+          - mosquitto-clients
+        state: absent
+        purge: true
+
+    - name: Remove broker config and password file
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/mosquitto/conf.d/homelab.conf
+        - /etc/mosquitto/passwd

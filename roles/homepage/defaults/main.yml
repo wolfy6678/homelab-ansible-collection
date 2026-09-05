@@ -1,0 +1,97 @@
+---
+# gethomepage.dev dashboard — the homelab's front door. Built from source with
+# pnpm and served by systemd.
+#
+# The tile list is DATA, not template code: services.yaml.j2 renders whatever
+# is in homepage_services, so adding a service or a widget never needs a change
+# to this role. It ships empty — which services exist depends entirely on what
+# you deploy. See roles/homepage/README.md for a copy-paste block covering
+# every service in this collection, and examples/group_vars/homepage/main.yml
+# for a working version of it.
+homepage_version: v1.13.2
+homepage_install_dir: /opt/homepage
+homepage_port: 3000
+
+# --- Appearance ---------------------------------------------------------------
+homepage_title: Homelab
+homepage_theme: dark
+homepage_color: slate
+homepage_header_style: boxed
+homepage_status_style: dot
+
+# --- Service tiles ------------------------------------------------------------
+# A list of groups, each with a `group` name and an `items` list. Every key on
+# an item except `name` is passed through to Homepage verbatim, so the full
+# service schema (icon, href, description, siteMonitor, ping, widget, ...) is
+# available with no role change: https://gethomepage.dev/configs/services/
+#
+# Derive URLs from the inventory rather than hard-coding IPs, and keep widget
+# credentials vault-encrypted:
+#
+#   homepage_services:
+#     - group: Infrastructure
+#       items:
+#         - name: Proxmox
+#           icon: proxmox.svg
+#           href: https://proxmox.example.lan:8006
+#           description: Proxmox VE hypervisor
+#           siteMonitor: https://proxmox.example.lan:8006
+#           widget:
+#             type: proxmox
+#             url: https://proxmox.example.lan:8006
+#             username: "root@pam!homepage"
+#             password: "{{ vault_homepage_proxmox_token_secret }}"
+#     - group: Applications
+#       items:
+#         - name: Jellyfin
+#           icon: jellyfin.svg
+#           href: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+#           description: Media server
+#           siteMonitor: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+homepage_services: []
+
+# Layout options per homepage_services group name. The layout block itself is
+# derived from homepage_services, so group names cannot drift out of sync;
+# this only overrides the per-group options. Keys are group names, e.g.
+#   homepage_layout:
+#     Applications:
+#       style: row
+#       columns: 3
+homepage_layout: {}
+homepage_layout_default:
+  style: row
+  columns: 2
+
+# Header "info" widgets, passed through verbatim
+# (https://gethomepage.dev/widgets/). The defaults are host-agnostic: resource
+# usage of this LXC, a search box and a clock.
+homepage_widgets:
+  - resources:
+      label: homepage
+      cpu: true
+      memory: true
+      disk: /
+      uptime: true
+  - search:
+      provider: duckduckgo
+      target: _blank
+  - datetime:
+      text_size: xl
+      format:
+        dateStyle: long
+        timeStyle: short
+
+# --- Host header allow-list ---------------------------------------------------
+# Hosts Homepage accepts in the Host header (it rejects others with "Host
+# validation failed"). Covers direct IP/hostname access plus the clean hostname
+# served by the Caddy reverse proxy (homepage.<caddy_base_domain>, matching the
+# `homepage` entry in caddy_sites) — without that entry, browsing
+# https://homepage.<base-domain> fails. The domain is read from the caddy
+# group's caddy_base_domain so it tracks renames; empty (entry omitted) when no
+# caddy group exists.
+homepage_caddy_domain: >-
+  {{ (hostvars[groups['caddy'][0]].caddy_base_domain | default(''))
+     if (groups['caddy'] | default([])) else '' }}
+homepage_allowed_hosts: >-
+  {{ ansible_host }}:{{ homepage_port }},{{ inventory_hostname }}:{{ homepage_port
+  }}{{ (',homepage.' ~ homepage_caddy_domain) if homepage_caddy_domain else '' }}

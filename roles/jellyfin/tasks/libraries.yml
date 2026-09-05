@@ -1,0 +1,47 @@
+---
+# Reconcile the media libraries from jellyfin_libraries: create the on-disk
+# directories, then add any library that Jellyfin doesn't already have (extras
+# in the UI are left alone). Authenticates as the admin created by the wizard.
+
+- name: Authenticate to the Jellyfin API
+  ansible.builtin.uri:
+    url: "http://localhost:{{ jellyfin_port }}/Users/AuthenticateByName"
+    method: POST
+    body_format: json
+    body:
+      Username: "{{ jellyfin_admin_user }}"
+      Pw: "{{ jellyfin_admin_password }}"
+    headers:
+      Authorization: 'MediaBrowser Client="ansible", Device="ansible", DeviceId="ansible", Version="1.0"'
+  register: jellyfin_auth
+  no_log: true
+
+- name: Create media library directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ jellyfin_libraries }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Get existing media libraries
+  ansible.builtin.uri:
+    url: "http://localhost:{{ jellyfin_port }}/Library/VirtualFolders"
+    headers:
+      X-Emby-Token: "{{ jellyfin_auth.json.AccessToken }}"
+  register: jellyfin_existing_libraries
+
+- name: Create missing media libraries
+  vars:
+    _query: "name={{ item.name | urlencode }}&collectionType={{ item.type }}&paths={{ item.path | urlencode }}&refreshLibrary=true"
+  ansible.builtin.uri:
+    url: "http://localhost:{{ jellyfin_port }}/Library/VirtualFolders?{{ _query }}"
+    method: POST
+    status_code: 204
+    headers:
+      X-Emby-Token: "{{ jellyfin_auth.json.AccessToken }}"
+  loop: "{{ jellyfin_libraries }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (jellyfin_existing_libraries.json | map(attribute='Name') | list)

@@ -1,0 +1,15 @@
+---
+# Builds the Terraform `lxcs` map from the `lxc` inventory group:
+# key = short hostname, ip = ansible_host/<lxc_subnet_prefix, default 24>,
+# merged with the host's optional `lxc_overrides` dict (memory, cores, ...)
+- name: Build LXC definitions from inventory
+  ansible.builtin.set_fact:
+    proxmox_terraform_lxcs: "{{ proxmox_terraform_lxcs | default({}) | combine({_lxc_name: _lxc_def}) }}"
+  loop: "{{ groups['lxc'] | default([]) }}"
+  loop_control:
+    loop_var: _lxc_host
+  vars:
+    _lxc_name: "{{ hostvars[_lxc_host].inventory_hostname_short }}"
+    _lxc_def: >-
+      {{ {'ip': hostvars[_lxc_host].ansible_host ~ '/' ~ (hostvars[_lxc_host].lxc_subnet_prefix | default(24))}
+         | combine(hostvars[_lxc_host].lxc_overrides | default({})) }}

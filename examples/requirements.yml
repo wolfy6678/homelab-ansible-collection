@@ -1,0 +1,13 @@
+---
+collections:
+  # The roles themselves. Pin to a released tag.
+  - name: https://github.com/wolfy6678/homelab-ansible-collection.git
+    type: git
+    version: v1.0.0
+
+  # homelab.core declares these as dependencies, so `ansible-galaxy collection
+  # install -r requirements.yml` pulls them in automatically. They are listed
+  # here only so you can see what lands on disk:
+  #   community.general  — terraform + npm modules
+  #   community.proxmox  — starting the LXCs after Terraform
+  #   oxlorg.opnsense    — the OPNsense API modules

@@ -1,0 +1,10 @@
+# Managed by Ansible (mosquitto role) — do not edit by hand.
+# Listener for the homelab MQTT broker, co-located on the Home Assistant LXC.
+# Persistence and logging come from the package default /etc/mosquitto/mosquitto.conf
+# (which include_dir's this file). Mosquitto 2.x only listens beyond localhost
+# when a listener is declared; with no bind address it binds all interfaces, so
+# Home Assistant (localhost) and the Glow device (LAN) can both connect.
+# Security directives placed after the listener apply to it.
+listener {{ mosquitto_port }}
+allow_anonymous false
+password_file /etc/mosquitto/passwd

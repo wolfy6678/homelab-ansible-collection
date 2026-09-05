@@ -1,0 +1,98 @@
+# Managed by Ansible — do not edit on the host
+global:
+  scrape_interval: {{ prometheus_scrape_interval }}
+
+scrape_configs:
+  - job_name: prometheus
+{% if prometheus_route_prefix %}
+    # Under --web.external-url, Prometheus serves everything (incl. /metrics) beneath
+    # its route-prefix, so the self-scrape must target the prefixed metrics path.
+    metrics_path: {{ prometheus_route_prefix }}/metrics
+{% endif %}
+    static_configs:
+      - targets: ["localhost:{{ prometheus_port }}"]
+
+  # node_exporter on every LXC (derived from the inventory) plus the PVE host.
+  # Guarded so an inventory with neither group still renders a valid config.
+{% if (groups['lxc'] | default([])) or prometheus_proxmox_node_target %}
+  - job_name: node
+    static_configs:
+{% for host in groups['lxc'] | default([]) | sort %}
+      - targets: ["{{ hostvars[host].ansible_host }}:{{ prometheus_node_exporter_port }}"]
+        labels:
+          instance: "{{ hostvars[host].inventory_hostname_short }}"
+{% endfor %}
+{% if prometheus_proxmox_node_target %}
+      - targets: ["{{ prometheus_proxmox_node_target }}"]
+        labels:
+          instance: proxmox
+{% endif %}
+{% endif %}
+{% if groups['gatus'] | default([]) %}
+
+  # Gatus health-check results (success gauges + response times) — drives the
+  # Service Health panels on the Homelab Overview dashboard.
+  - job_name: gatus
+    static_configs:
+      - targets: ["{{ hostvars[groups['gatus'][0]].ansible_host }}:{{ prometheus_gatus_port }}"]
+        labels:
+          instance: gatus
+{% endif %}
+{% if groups['headscale'] | default([]) %}
+
+  # headscale control-server metrics — drives the Headscale VPN dashboard.
+  - job_name: headscale
+    static_configs:
+      - targets: ["{{ hostvars[groups['headscale'][0]].ansible_host }}:{{ prometheus_headscale_metrics_port }}"]
+        labels:
+          instance: headscale
+{% if hostvars[groups['headscale'][0]].headscale_fail2ban_enabled | default(true) and
+      hostvars[groups['headscale'][0]].headscale_fail2ban_exporter_enabled | default(true) %}
+
+  # fail2ban ban/failure counts from the exporter next to the headscale jail.
+  # The flags are declared in group_vars/headscale (the single source both
+  # roles read); default(true) only covers a foreign inventory without them.
+  - job_name: fail2ban
+    static_configs:
+      - targets: ["{{ hostvars[groups['headscale'][0]].ansible_host }}:{{ prometheus_fail2ban_exporter_port }}"]
+        labels:
+          instance: headscale
+{% endif %}
+{% endif %}
+{% if prometheus_pve_exporter_enabled | bool and prometheus_pve_target %}
+
+  # Proxmox API metrics via prometheus-pve-exporter (multi-target pattern: the
+  # PVE host to query is passed as the `target` param, the exporter runs local).
+  - job_name: pve
+    metrics_path: /pve
+    params:
+      module: [default]
+    static_configs:
+      - targets: ["{{ prometheus_pve_target }}"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: "127.0.0.1:{{ prometheus_pve_exporter_port }}"
+{% endif %}
+{% if prometheus_opnsense_target %}
+
+  # OPNsense firewall via the os-node_exporter plugin (see group_vars/monitoring).
+  - job_name: opnsense
+    static_configs:
+      - targets: ["{{ prometheus_opnsense_target }}"]
+        labels:
+          instance: opnsense
+{% endif %}
+{% if prometheus_opnsense_telegraf_target %}
+
+  # OPNsense firewall via os-telegraf's Prometheus output — pf states, gateway
+  # latency/loss, per-interface traffic (see group_vars/monitoring).
+  - job_name: opnsense-telegraf
+    static_configs:
+      - targets: ["{{ prometheus_opnsense_telegraf_target }}"]
+        labels:
+          instance: opnsense
+{% endif %}

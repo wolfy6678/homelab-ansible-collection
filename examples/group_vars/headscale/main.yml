@@ -1,0 +1,51 @@
+---
+# Headscale — self-hosted Tailscale control server plus a co-located subnet
+# router. See roles/headscale/README.md.
+#
+# This is the ONE service that is internet-facing. Before the first run:
+#   1. Create a public DNS record (A/AAAA or DDNS) for the hostname below,
+#      pointing at your home's public IP.
+#   2. Port-forward TCP 443 on your firewall to this container.
+# headscale obtains a Let's Encrypt certificate on first start (TLS-ALPN-01),
+# and the deploy waits for it — so do both first or the play times out.
+headscale_server_url: https://vpn.example.com
+headscale_acme_email: you@example.com
+
+# --- Site topology ----------------------------------------------------------
+# The collection ships these generic so it encodes nobody's LAN. Set yours.
+
+# LAN prefix advertised to the tailnet, so remote devices reach every homelab
+# service through this one node.
+headscale_advertise_routes: "192.168.50.0/24"
+
+# Split DNS: which zones remote clients resolve through your LAN resolver.
+# Set this to your Caddy base domain so the LAN-only clean hostnames work on
+# your phone when you're away. {} disables it (reach services by IP instead).
+headscale_dns_split:
+  example.com:
+    - 192.168.50.1
+
+# The LAN resolver enrolled devices may query — this feeds the ':53' entry in
+# the tailnet ACL, which the split-DNS zone above depends on.
+headscale_acl_dns_server: "192.168.50.1"
+
+# The ACL (on by default) restricts enrolled devices to DNS + the Caddy reverse
+# proxy: the clean hostnames keep working, but SSH, the hypervisor and firewall
+# admin UIs and direct service ports are not reachable from a lost or stolen
+# remote device. To restore full LAN access:
+# headscale_acl_dsts:
+#   - "192.168.50.0/24:*"
+# ...or set headscale_acl_enabled: false for allow-all.
+
+# --- Required here, not as role defaults ------------------------------------
+# The monitoring host's prometheus role reads all four via hostvars to build its
+# headscale and fail2ban scrape jobs, and role defaults are invisible in
+# hostvars. Declaring them here keeps one source for both roles.
+#
+# Metrics bind on all interfaces so the monitoring container can scrape; this
+# stays LAN-only (only TCP 443 is forwarded from the WAN, and :9090 is not in
+# the ACL). Use 127.0.0.1:9090 to opt out of remote scraping.
+headscale_metrics_listen_addr: "0.0.0.0:9090"
+headscale_fail2ban_enabled: true
+headscale_fail2ban_exporter_enabled: true
+headscale_fail2ban_exporter_port: 9191

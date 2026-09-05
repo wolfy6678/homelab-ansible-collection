@@ -1,0 +1,144 @@
+---
+# Gatus (https://github.com/TwiN/gatus) endpoint monitor.
+# Releases ship Docker images only; the binary is built from the tagged source
+# tarball using a pinned Go toolchain downloaded from go.dev.
+
+# Preflight: gatus_port has no role default on purpose — the monitoring LXC's
+# prometheus template reads it from this host's vars via hostvars to build the
+# gatus scrape target, and role defaults are invisible in hostvars. Assert it
+# here so a missing declaration fails with an instruction instead of a bare
+# "'gatus_port' is undefined" further down. See docs/inventory.md.
+- name: Assert the required gatus inventory variables are set
+  ansible.builtin.assert:
+    that:
+      - gatus_port is defined
+    fail_msg: >-
+      Set gatus_port in group_vars/gatus/main.yml (e.g. 8080). It must be
+      declared in your inventory, not as a role default, so the prometheus
+      role can read it via hostvars. See docs/inventory.md.
+    quiet: true
+
+# Gatus refuses to start on a config with no endpoints, so catch that here
+# rather than leaving a crash-looping service behind. The certificate group
+# counts: it is derived from caddy_sites and needs no gatus_endpoints entries.
+- name: Assert gatus has something to monitor
+  ansible.builtin.assert:
+    that:
+      - (gatus_endpoints | length > 0) or (gatus_certificate_sites | length > 0)
+    fail_msg: >-
+      No endpoints to monitor. Set gatus_endpoints in group_vars/gatus/main.yml
+      (the role ships an empty list because which services you run is up to your
+      inventory), or add a `caddy` group with caddy_sites, which produces the
+      certificate-expiry checks automatically. The gatus role README has a
+      copy-paste block covering every service in this collection.
+    quiet: true
+
+- name: Create gatus system user
+  ansible.builtin.user:
+    name: "{{ gatus_user }}"
+    system: true
+    create_home: false
+
+- name: Create gatus install directory
+  ansible.builtin.file:
+    path: "{{ gatus_install_dir }}/{{ gatus_version }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create gatus config directory
+  ansible.builtin.file:
+    path: "{{ gatus_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Create gatus data directory
+  ansible.builtin.file:
+    path: "{{ gatus_data_dir }}"
+    state: directory
+    owner: "{{ gatus_user }}"
+    group: "{{ gatus_user }}"
+    mode: "0750"
+
+# Go 1.26+ is required by Gatus's go.mod; Debian trixie ships 1.24 only.
+# Install a pinned Go toolchain from go.dev into /usr/local/go-{{ gatus_go_version }}.
+- name: Download Go toolchain
+  ansible.builtin.unarchive:
+    src: "https://dl.google.com/go/go{{ gatus_go_version }}.linux-amd64.tar.gz"
+    dest: /usr/local
+    remote_src: true
+    creates: "/usr/local/go-{{ gatus_go_version }}/bin/go"
+    extra_opts:
+      - "--transform"
+      - "s|^go/|go-{{ gatus_go_version }}/|"
+
+- name: Download Gatus source tarball
+  ansible.builtin.unarchive:
+    src: "https://github.com/TwiN/gatus/archive/refs/tags/{{ gatus_version }}.tar.gz"
+    dest: /tmp
+    remote_src: true
+    creates: "/tmp/gatus-{{ gatus_version | regex_replace('^v', '') }}"
+
+- name: Build Gatus binary
+  ansible.builtin.command:
+    cmd: "/usr/local/go-{{ gatus_go_version }}/bin/go build -v -o {{ gatus_install_dir }}/{{ gatus_version }}/gatus ."
+    chdir: "/tmp/gatus-{{ gatus_version | regex_replace('^v', '') }}"
+    creates: "{{ gatus_install_dir }}/{{ gatus_version }}/gatus"
+  environment:
+    CGO_ENABLED: "0"
+    GOOS: linux
+    GOARCH: amd64
+    GOPATH: /tmp/gatus-gopath
+    GOMODCACHE: /tmp/gatus-gopath/pkg/mod
+  changed_when: true
+  notify: Restart gatus
+
+- name: Symlink gatus binary into PATH
+  ansible.builtin.file:
+    src: "{{ gatus_install_dir }}/{{ gatus_version }}/gatus"
+    dest: /usr/local/bin/gatus
+    state: link
+    force: true
+  notify: Restart gatus
+
+# The headscale HTTPS check probes its public hostname, which is split-horizon
+# (no LAN DNS record) and not hairpin-NATed — pin it to the headscale LXC's LAN
+# IP so the probe resolves. The public LE cert still validates (SNI carries the
+# hostname). Same trick the headscale role uses for its co-located subnet
+# router. No-op when headscale_server_url isn't set.
+- name: Pin the headscale public hostname to its LAN IP
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: >-
+      {{ hostvars[groups['headscale'][0]].ansible_host }} {{
+      gatus_headscale_server_url | urlsplit('hostname') }}
+    regexp: '\s{{ gatus_headscale_server_url | urlsplit(''hostname'') | regex_escape }}$'
+  when:
+    - gatus_headscale_server_url | length > 0
+    - groups['headscale'] | default([]) | length > 0
+
+- name: Template gatus config
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ gatus_config_dir }}/config.yaml"
+    owner: root
+    group: "{{ gatus_user }}"
+    mode: "0640"
+  notify: Restart gatus
+
+- name: Template gatus systemd service unit
+  ansible.builtin.template:
+    src: gatus.service.j2
+    dest: /etc/systemd/system/gatus.service
+    mode: "0644"
+  notify: Restart gatus
+
+- name: Enable and start gatus service
+  ansible.builtin.systemd_service:
+    name: gatus
+    state: started
+    enabled: true
+    daemon_reload: true

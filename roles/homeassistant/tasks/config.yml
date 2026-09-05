@@ -1,0 +1,57 @@
+---
+# Lay down the Home Assistant configuration tree: the config + packages
+# directories, the managed configuration.yaml, and the scaffold files HA
+# expects (automations/scripts/scenes) created without clobbering any
+# existing content.
+
+- name: Create homeassistant config directory
+  ansible.builtin.file:
+    path: "{{ homeassistant_config_dir }}"
+    state: directory
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0755"
+
+- name: Create homeassistant packages directory
+  ansible.builtin.file:
+    path: "{{ homeassistant_config_dir }}/packages"
+    state: directory
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0755"
+
+- name: Template configuration.yaml
+  ansible.builtin.template:
+    src: configuration.yaml.j2
+    dest: "{{ homeassistant_config_dir }}/configuration.yaml"
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0600"
+  notify: Restart homeassistant
+
+- name: Ensure automations.yaml exists (no overwrite)
+  ansible.builtin.copy:
+    dest: "{{ homeassistant_config_dir }}/automations.yaml"
+    content: "[]\n"
+    force: false
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0600"
+
+- name: Ensure scripts.yaml exists (no overwrite)
+  ansible.builtin.copy:
+    dest: "{{ homeassistant_config_dir }}/scripts.yaml"
+    content: ""
+    force: false
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0600"
+
+- name: Ensure scenes.yaml exists (no overwrite)
+  ansible.builtin.copy:
+    dest: "{{ homeassistant_config_dir }}/scenes.yaml"
+    content: "[]\n"
+    force: false
+    owner: "{{ homeassistant_user }}"
+    group: "{{ homeassistant_user }}"
+    mode: "0600"

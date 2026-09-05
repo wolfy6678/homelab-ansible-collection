@@ -1,0 +1,100 @@
+---
+# Bring the local Tailscale node up as a subnet router, registering it against
+# the co-located headscale via a reusable pre-auth key — but only once. On
+# re-runs the node is already "Running", so we skip registration and just
+# reconcile the advertised routes + their approval (both idempotent).
+- name: Check current Tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: headscale_tailscale_status
+  changed_when: false
+  failed_when: false
+
+- name: Determine whether the node is already registered
+  ansible.builtin.set_fact:
+    headscale_node_registered: >-
+      {{ (headscale_tailscale_status.stdout | from_json).BackendState | default('') == 'Running'
+         if headscale_tailscale_status.stdout else false }}
+
+- name: Create a reusable pre-auth key
+  ansible.builtin.command: >-
+    headscale preauthkeys create
+    --user {{ headscale_user_id }}
+    --reusable
+    --expiration {{ headscale_preauthkey_expiration }}
+    --output json
+  register: headscale_preauthkey
+  changed_when: true
+  when: not headscale_node_registered
+  # stdout contains the reusable pre-auth key (a tailnet-enrollment secret) —
+  # the consumer task below already no_logs it, so guard the producer too.
+  no_log: true
+
+- name: Register this node as a subnet router
+  ansible.builtin.command: >-
+    tailscale up
+    --login-server {{ headscale_local_login_url }}
+    --authkey {{ (headscale_preauthkey.stdout | from_json).key }}
+    --advertise-routes {{ headscale_advertise_routes }}
+    --accept-dns=false
+    --hostname {{ headscale_router_hostname }}
+  changed_when: true
+  when: not headscale_node_registered
+  no_log: true
+
+# Idempotent on re-runs: ensures the advertised set matches even if the node
+# was registered previously without (or with different) routes.
+- name: Ensure advertised routes are set
+  ansible.builtin.command: "tailscale set --advertise-routes {{ headscale_advertise_routes }}"
+  changed_when: false
+  when: headscale_node_registered
+
+# Find the subnet-router node and approve its advertised routes so traffic for
+# the LAN actually flows. approve-routes is declarative (sets the full approved
+# set), so we only run it when the route isn't approved yet.
+#
+# Match the hostname OR a headscale-assigned collision suffix (homelab-subnet-
+# router-1, ...) — re-enrolling after a stale node lingers gives the NEW node the
+# suffix while the old one keeps the bare name, so an exact match would approve
+# the dead node. Pick the highest-id match (the most recently registered = ours);
+# prune stale duplicate nodes in headscale if they accumulate.
+- name: Look up the subnet-router node
+  ansible.builtin.command: headscale nodes list --output json
+  register: headscale_nodes
+  changed_when: false
+  # An empty node list is printed as JSON null (Go nil slice), hence the default.
+  until: >-
+    headscale_nodes.stdout | from_json | default([], true)
+    | selectattr('given_name', 'match', '^' ~ headscale_router_hostname ~ '(-[0-9]+)?$') | list | length > 0
+  retries: 10
+  delay: 3
+
+- name: Collect the matching subnet-router nodes
+  ansible.builtin.set_fact:
+    headscale_router_matches: >-
+      {{ headscale_nodes.stdout | from_json | default([], true)
+         | selectattr('given_name', 'match', '^' ~ headscale_router_hostname ~ '(-[0-9]+)?$') | list }}
+
+# headscale has emitted the node id both as a JSON number (0.29.1) and as a
+# numeric string across versions, so pick the max by int (a lexical sort would
+# rank "3" above "12") and match it in either form. Highest id = newest = ours.
+- name: Record the subnet-router node
+  ansible.builtin.set_fact:
+    headscale_router_node: >-
+      {{ headscale_router_matches
+         | selectattr('id', 'in', [headscale_router_max_id | int, headscale_router_max_id | string])
+         | first }}
+  vars:
+    headscale_router_max_id: "{{ headscale_router_matches | map(attribute='id') | map('int') | max }}"
+
+- name: Approve the advertised subnet route
+  ansible.builtin.command: >-
+    headscale nodes approve-routes
+    --identifier {{ headscale_router_node.id }}
+    --routes {{ headscale_advertise_routes }}
+  changed_when: true
+  # Compare per-route (headscale_advertise_routes may be a comma-separated list)
+  # against the node's already-approved set, so re-runs are a true no-op.
+  when: >-
+    headscale_advertise_routes.split(',')
+    | difference(headscale_router_node.approved_routes | default([]))
+    | length > 0

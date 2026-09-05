@@ -1,0 +1,59 @@
+---
+# Caddy reverse proxy — fronts the homelab web services at clean hostnames with
+# HTTPS. See roles/caddy/README.md.
+
+caddy_base_domain: example.com
+
+# internal — Caddy's own CA issues certs. Nothing external needed, but you must
+#            install its root CA on every device to avoid browser warnings:
+#            /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+# acme     — real Let's Encrypt certs via the DNS-01 challenge: browser-trusted
+#            everywhere, no per-device CA, and the services still stay LAN-only
+#            (only transient _acme-challenge TXT records go in the public zone).
+#            Needs a domain you own plus the DNS API token below.
+caddy_tls_mode: acme
+caddy_acme_email: you@example.com
+
+# DNS-01 provider. The role installs the matching caddy-dns plugin into the apt
+# Caddy binary. Provider name == the caddy-dns module suffix.
+caddy_dns_provider: cloudflare
+# A token scoped to this zone only (Cloudflare: My Profile > API Tokens >
+# "Edit zone DNS" template, scoped to the zone).
+# ansible-vault encrypt_string --vault-id homelab@prompt '<token>' --name 'caddy_dns_api_token'
+# caddy_dns_api_token: !vault |
+#   ...
+
+# THE list of clean hostnames: <name>.{{ caddy_base_domain }} -> upstream.
+#
+# It lives here rather than in the role defaults because two other roles read it
+# via hostvars — gatus derives its certificate-expiry checks from it, and
+# opnsense derives the LAN DNS overrides from it — and role defaults are
+# invisible in hostvars. Add and remove services HERE and the rest follows.
+#
+# Upstreams are derived from the inventory so they track IP changes.
+caddy_sites:
+  - name: homepage
+    upstream: "{{ hostvars[groups['homepage'][0]].ansible_host }}:3000"
+  - name: homeassistant
+    upstream: "{{ hostvars[groups['homeassistant'][0]].ansible_host }}:8123"
+  - name: gatus
+    upstream: "{{ hostvars[groups['gatus'][0]].ansible_host }}:8080"
+  - name: jellyfin
+    upstream: "{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+  - name: wiki
+    upstream: "{{ hostvars[groups['otterwiki'][0]].ansible_host }}:80"
+
+  # One hostname serving two apps, split by sub-path. Each app is configured to
+  # serve from its own prefix (grafana_root_url, prometheus_external_url in
+  # group_vars/monitoring), so the prefix is passed through un-stripped.
+  # `default_redirect` sends the bare hostname to Grafana.
+  - name: monitoring
+    default_redirect: /grafana/
+    paths:
+      - path: /grafana*
+        upstream: "{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000"
+      - path: /prometheus*
+        upstream: "{{ hostvars[groups['monitoring'][0]].ansible_host }}:9090"
+
+# headscale is deliberately absent: it serves its own public TLS on :443 and
+# must keep resolving to your public IP, not to Caddy.

@@ -1,0 +1,36 @@
+---
+jellyfin_port: 8096
+
+# Directory Jellyfin media libraries point at (configured in the Jellyfin UI).
+# With an external drive or NAS, mount it on the Proxmox host and bind-mount it
+# here via lxc_overrides.mountpoints in the inventory (see
+# examples/inventory/hosts.yml);
+# without a mount it is just an empty directory on the rootfs.
+# NB: in an unprivileged LXC, bind-mounted files appear owned by the host uid
+# +100000 — make the media world-readable on the host so the jellyfin user can
+# scan it.
+jellyfin_media_dir: /mnt/media
+
+# First-run setup wizard, automated via Jellyfin's /Startup API (those
+# endpoints accept anonymous requests only until the wizard is complete, so
+# this runs once per container).  The admin password is only SET on first run,
+# but library reconciliation authenticates with it on every run — if you later
+# change it in the UI, mirror the change in the vault.
+jellyfin_admin_user: admin
+jellyfin_admin_password: >-
+  {{ undef(hint='Set jellyfin_admin_password to the Jellyfin admin password
+  (vault-encrypt it in group_vars/jellyfin/main.yml)') }}
+jellyfin_ui_culture: en-GB
+jellyfin_metadata_language: en
+jellyfin_metadata_country: GB
+
+# Media libraries, reconciled on every run: missing ones are created, extras
+# and per-library settings changed in the UI are left alone.  type is a
+# Jellyfin collectionType (movies, tvshows, music, books, photos, mixed, ...)
+jellyfin_libraries:
+  - name: Movies
+    type: movies
+    path: "{{ jellyfin_media_dir }}/movies"
+  - name: Shows
+    type: tvshows
+    path: "{{ jellyfin_media_dir }}/shows"

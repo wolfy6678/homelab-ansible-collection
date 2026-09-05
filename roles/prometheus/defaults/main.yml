@@ -1,0 +1,94 @@
+---
+# Prometheus time-series server. Runs on the monitoring LXC; scrapes
+# node_exporter on every host (targets derived from the inventory) plus,
+# optionally, the Proxmox API via prometheus-pve-exporter. Installed from the
+# upstream release tarball (pinned) — same binary-download pattern as gatus.
+prometheus_version: v3.12.0
+prometheus_port: 9090
+prometheus_user: prometheus
+prometheus_install_dir: /opt/prometheus
+prometheus_config_dir: /etc/prometheus
+prometheus_data_dir: /var/lib/prometheus
+prometheus_retention: 90d
+prometheus_scrape_interval: 15s
+
+# Serve Prometheus behind Caddy under a sub-path (monitoring.<domain>/prometheus).
+# prometheus_external_url sets --web.external-url (a full URL, trailing slash), which
+# also makes route-prefix default to its path so the UI assets resolve. Setting it
+# moves ALL routes (UI, API, /metrics, /-/healthy) under that prefix — hence
+# prometheus_route_prefix is used to fix the self-scrape metrics_path, and the Grafana
+# datasource + Gatus health URLs must include it too. Both empty = serve at root.
+# Set in group_vars/monitoring/main.yml.
+prometheus_external_url: ""
+prometheus_route_prefix: ""
+
+# node_exporter port on the scraped hosts (matches the node_exporter role).
+prometheus_node_exporter_port: 9100
+
+# Service-level scrape jobs, added automatically when the matching inventory
+# group exists (targets derived from it, like the node job above). The ports
+# are read from the owning service's group_vars via hostvars (single source —
+# no hand-mirrored defaults to drift). Each is only evaluated inside the
+# template's group-exists guard, so a missing group never errors here.
+# Gatus health-check results (gatus_results_* — drives the Service Health
+# panels on the Homelab Overview dashboard); /metrics shares gatus_port.
+prometheus_gatus_port: "{{ hostvars[groups['gatus'][0]].gatus_port }}"
+# headscale's own metrics endpoint (the port half of
+# headscale_metrics_listen_addr — drives the Headscale VPN dashboard).
+prometheus_headscale_metrics_port: >-
+  {{ hostvars[groups['headscale'][0]].headscale_metrics_listen_addr
+     | regex_replace('^.*:', '') }}
+# fail2ban exporter next to the headscale jail.
+prometheus_fail2ban_exporter_port: "{{ hostvars[groups['headscale'][0]].headscale_fail2ban_exporter_port }}"
+
+# The Proxmox host's node_exporter target (host-level metrics), derived from the
+# `proxmox` inventory group. That group's host is conventionally addressed by
+# name with no ansible_host, so the name must resolve on the LAN — the same name
+# terraform_proxmox_api_url uses. Override with an explicit IP:port if it
+# doesn't. Empty (and the scrape target omitted) when there is no proxmox group.
+prometheus_proxmox_node_target: >-
+  {{ (groups['proxmox'][0] ~ ':' ~ prometheus_node_exporter_port)
+     if (groups['proxmox'] | default([])) else '' }}
+
+# Optional /etc/hosts pin of the prometheus_pve_target hostname on this LXC
+# (same pattern as the gatus role's headscale pin). pve-exporter re-resolves
+# the PVE hostname on every API request — ~20 requests per 15s scrape because
+# pveproxy doesn't keep connections alive — which floods the LAN resolver with
+# A+AAAA queries (~100/min measured live) and pays DNS latency per request.
+# Set to the PVE host's IP in group_vars/monitoring to pin it; empty = no pin.
+# Keeps the scrape targets on the hostname, so the `instance` labels (and thus
+# the Proxmox dashboard queries) are unchanged.
+prometheus_proxmox_pin_ip: ""
+
+# prometheus-pve-exporter: cluster/guest/storage metrics from the Proxmox API.
+# Gated on prometheus_pve_exporter_enabled — node_exporter on the PVE host still
+# provides host metrics when this is off. When on, requires a Proxmox API token
+# with the PVEAuditor role (setup steps in group_vars/monitoring/main.yml).
+prometheus_pve_exporter_enabled: true
+prometheus_pve_exporter_version: "3.9.0"
+prometheus_pve_exporter_port: 9221
+prometheus_pve_exporter_venv: /srv/pve-exporter
+# PVE host the exporter queries, derived from the `proxmox` inventory group
+# (see prometheus_proxmox_node_target above). Override with a hostname or IP if
+# your PVE host isn't in the inventory.
+prometheus_pve_target: >-
+  {{ groups['proxmox'][0] if (groups['proxmox'] | default([])) else '' }}
+prometheus_pve_verify_ssl: false
+prometheus_pve_token_id: >-
+  {{ undef(hint='Set prometheus_pve_token_id to a Proxmox API token id with the
+  PVEAuditor role, e.g. api-monitoring@pam!pve-exporter, in group_vars/monitoring/main.yml') }}
+prometheus_pve_token_secret: >-
+  {{ undef(hint='Set prometheus_pve_token_secret to the Proxmox API token secret
+  (vault-encrypt it) in group_vars/monitoring/main.yml') }}
+
+# OPNsense scrape target — optional. Install the os-node_exporter plugin on
+# OPNsense (steps in group_vars/monitoring/main.yml), then set this to its
+# host:port (default plugin port 9100). Leave empty to skip.
+prometheus_opnsense_target: ""
+
+# OPNsense Telegraf scrape target — optional, richer firewall metrics (pf state
+# table, gateway latency/loss, per-interface traffic) on top of os-node_exporter.
+# Install the os-telegraf plugin, enable its Prometheus output (steps in
+# group_vars/monitoring/main.yml), then set this to its host:port (default
+# Telegraf Prometheus output port 9273). Leave empty to skip.
+prometheus_opnsense_telegraf_target: ""

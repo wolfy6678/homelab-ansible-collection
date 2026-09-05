@@ -1,0 +1,95 @@
+---
+# Auto-configure the Hildebrand Glow (DCC) integration through HA's config-flow
+# REST API. The integration sets no unique_id, so its flow is NOT idempotent —
+# running it blindly creates a duplicate entry every deploy. We therefore look for
+# an existing entry first (the GET also serves as the API-readiness probe) and only
+# create one when none exists.
+- name: Configure the Hildebrand Glow (DCC) integration
+  when:
+    - homeassistant_glow_dcc_enabled
+    - homeassistant_glow_dcc_autoconfigure
+    - not (mosquitto_enabled | default(false))
+  block:
+    - name: Wait for the HA API and fetch any existing Glow DCC config entry
+      ansible.builtin.uri:
+        url: "http://localhost:{{ homeassistant_port }}/api/config/config_entries/entry?domain=hildebrandglow_dcc"
+        headers:
+          Authorization: "Bearer {{ homeassistant_api_token }}"
+        status_code: [200, 401, 502, 503]
+      register: homeassistant_glow_dcc_entries
+      retries: 30
+      delay: 2
+      # 401 is terminal (HA's API answers once auth is loaded, so it means a bad
+      # token, not "still starting") — stop retrying and let the assert explain.
+      until: homeassistant_glow_dcc_entries.status in [200, 401]
+      no_log: true
+
+    - name: Fail clearly if Home Assistant rejected the admin token
+      ansible.builtin.assert:
+        that: homeassistant_glow_dcc_entries.status == 200
+        fail_msg: >-
+          Home Assistant returned 401 for homeassistant_api_token — it is missing,
+          invalid, or not an admin long-lived token. Create one under HA profile >
+          Security and set homeassistant_api_token (vault-encrypted).
+        quiet: true
+
+    - name: Start the Hildebrand Glow (DCC) config flow
+      ansible.builtin.uri:
+        url: "http://localhost:{{ homeassistant_port }}/api/config/config_entries/flow"
+        method: POST
+        body_format: json
+        body:
+          handler: hildebrandglow_dcc
+        headers:
+          Authorization: "Bearer {{ homeassistant_api_token }}"
+      register: homeassistant_glow_dcc_flow
+      when: homeassistant_glow_dcc_entries.json | length == 0
+      no_log: true
+
+    - name: Submit Bright app credentials to the config flow
+      ansible.builtin.uri:
+        url: "http://localhost:{{ homeassistant_port }}/api/config/config_entries/flow/{{ homeassistant_glow_dcc_flow.json.flow_id }}"
+        method: POST
+        body_format: json
+        body:
+          username: "{{ homeassistant_glow_dcc_username }}"
+          password: "{{ homeassistant_glow_dcc_password }}"
+        headers:
+          Authorization: "Bearer {{ homeassistant_api_token }}"
+      register: homeassistant_glow_dcc_submit
+      when: homeassistant_glow_dcc_flow is not skipped
+      no_log: true
+
+    - name: Assert the Glow DCC integration was configured
+      ansible.builtin.assert:
+        that:
+          - homeassistant_glow_dcc_submit.json.type == 'create_entry'
+        fail_msg: >-
+          Hildebrand Glow (DCC) setup failed
+          ({{ homeassistant_glow_dcc_submit.json.errors | default('unexpected response') }}).
+          Check homeassistant_glow_dcc_username / homeassistant_glow_dcc_password (Bright app credentials).
+        success_msg: Hildebrand Glow (DCC) integration configured.
+      when: homeassistant_glow_dcc_flow is not skipped
+
+    # Energy prefs have no REST endpoint, so this runs a WebSocket helper with the
+    # HA venv's interpreter (which provides aiohttp). The script is idempotent and
+    # non-destructive (adds a grid/gas source only when none exists) and exits 3
+    # while the integration's sensors are still being registered — we retry until
+    # it reports ready. no_log because the admin token is passed in the
+    # environment; comment it out to see CHANGED/OK/NOTREADY output when debugging.
+    - name: Add the Glow DCC sensors to the Energy dashboard
+      ansible.builtin.script:
+        cmd: manage_energy_dashboard.py
+        executable: "{{ homeassistant_venv_dir }}/bin/python3"
+      environment:
+        HASS_URL: "http://localhost:{{ homeassistant_port }}"
+        HASS_TOKEN: "{{ homeassistant_api_token }}"
+        ACTION: add
+        DISCOVER_PLATFORM: hildebrandglow_dcc
+      register: homeassistant_glow_dcc_energy
+      changed_when: "'CHANGED' in homeassistant_glow_dcc_energy.stdout"
+      until: homeassistant_glow_dcc_energy.rc == 0
+      retries: 30
+      delay: 5
+      no_log: true
+      when: homeassistant_glow_dcc_energy_dashboard

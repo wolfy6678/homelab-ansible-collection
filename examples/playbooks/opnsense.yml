@@ -1,0 +1,21 @@
+---
+# Reconcile the OPNsense firewall resources the homelab services depend on
+# (the Caddy DNS host overrides, an optional monitoring scrape rule) over the
+# OPNsense API. Runs from localhost — connection: local, with ansible_host as
+# the API host — so it never SSHes into the firewall. A no-op until
+# opnsense_manage_enabled is true.
+- name: Reconcile OPNsense firewall resources
+  hosts: opnsense
+  connection: local
+  gather_facts: false
+  # The API credentials are supplied once, here, for every module in the
+  # collection — which is why the role's api_key/api_secret defaults are never
+  # evaluated while the role is disabled.
+  module_defaults:
+    group/oxlorg.opnsense.all:
+      firewall: "{{ ansible_host }}"
+      api_key: "{{ opnsense_api_key }}"
+      api_secret: "{{ opnsense_api_secret }}"
+      ssl_verify: "{{ opnsense_ssl_verify }}"
+  roles:
+    - homelab.core.opnsense

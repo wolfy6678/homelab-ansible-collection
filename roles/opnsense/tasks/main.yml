@@ -1,0 +1,71 @@
+---
+# Preflight: both derived addresses come from other inventory groups, so an
+# inventory without them would otherwise fail inside an API call — after the
+# module has already reached the firewall. Only checked for the features that
+# are actually switched on.
+- name: Assert the derived OPNsense targets resolve
+  ansible.builtin.assert:
+    that:
+      - not (opnsense_unbound_wildcard | bool or (opnsense_unbound_hosts | length > 0))
+        or (opnsense_caddy_ip | length > 0)
+      - not (opnsense_monitoring_rule_enabled | bool)
+        or (opnsense_monitoring_source | length > 0)
+    fail_msg: >-
+      The DNS overrides point at the Caddy host and the scrape rule at the
+      monitoring host, both derived from the inventory. Add a `caddy` /
+      `monitoring` group, or set opnsense_caddy_ip /
+      opnsense_monitoring_source explicitly in group_vars/opnsense/main.yml.
+      See docs/opnsense.md.
+    quiet: true
+  when: opnsense_manage_enabled | bool
+
+# All work is gated on opnsense_manage_enabled so a site run is a no-op until the
+# OPNsense API is configured. API connection params come from the playbook's
+# module_defaults (group/oxlorg.opnsense.all); when the role is disabled the
+# modules never run, so the undef() api_key/api_secret are never evaluated.
+- name: Manage OPNsense firewall resources
+  when: opnsense_manage_enabled | bool
+  block:
+    # --- Unbound DNS host overrides for the Caddy reverse proxy -------------
+    # match_fields excludes `value` so changing the Caddy IP updates the record
+    # in place instead of creating a duplicate.
+    - name: Reconcile wildcard Caddy DNS host override
+      oxlorg.opnsense.unbound_host:
+        hostname: "*"
+        domain: "{{ opnsense_unbound_domain }}"
+        record_type: A
+        value: "{{ opnsense_caddy_ip }}"
+        description: "Caddy reverse proxy (managed by Ansible)"
+        match_fields: ["hostname", "domain", "record_type"]
+        state: present
+      when: opnsense_unbound_wildcard | bool
+
+    - name: Reconcile explicit Caddy DNS host overrides
+      oxlorg.opnsense.unbound_host:
+        hostname: "{{ item.hostname }}"
+        domain: "{{ item.domain | default(opnsense_unbound_domain) }}"
+        record_type: A
+        value: "{{ item.value | default(opnsense_caddy_ip) }}"
+        description: "{{ item.description | default('Caddy reverse proxy (managed by Ansible)') }}"
+        match_fields: ["hostname", "domain", "record_type"]
+        state: present
+      loop: "{{ opnsense_unbound_hosts }}"
+      loop_control:
+        label: "{{ item.hostname }}.{{ item.domain | default(opnsense_unbound_domain) }}"
+      when: not (opnsense_unbound_wildcard | bool)
+
+    # --- Optional: let the monitoring LXC scrape OPNsense's exporters --------
+    # One pass rule per port; idempotent on the description.
+    - name: Reconcile monitoring scrape firewall rule
+      oxlorg.opnsense.rule:
+        interface: "{{ opnsense_monitoring_interface }}"
+        action: pass
+        protocol: TCP
+        source_net: "{{ opnsense_monitoring_source }}"
+        destination_net: "{{ ansible_host }}"
+        destination_port: "{{ item }}"
+        description: "homelab monitoring scrape :{{ item }} (managed by Ansible)"
+        match_fields: ["description"]
+        state: present
+      loop: "{{ opnsense_monitoring_ports }}"
+      when: opnsense_monitoring_rule_enabled | bool

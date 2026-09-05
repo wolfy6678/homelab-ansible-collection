@@ -1,0 +1,5 @@
+---
+- name: Install and start OtterWiki
+  hosts: otterwiki
+  roles:
+    - homelab.core.otterwiki

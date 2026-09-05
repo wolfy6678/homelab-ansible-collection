@@ -1,0 +1,29 @@
+---
+# Grafana Loki — log store for the OPNsense IDS/firewall log visualisation.
+# Runs on the monitoring host alongside Prometheus + Grafana.
+# Grafana Alloy (the alloy role) ships OPNsense syslog into it; Grafana reads it
+# via a provisioned Loki datasource. Installed from the upstream release zip
+# (pinned) — same binary-download pattern as prometheus/node_exporter/gatus.
+loki_version: v3.7.3
+loki_port: 3100
+loki_user: loki
+loki_install_dir: /opt/loki
+loki_config_dir: /etc/loki
+loki_data_dir: /var/lib/loki
+
+# Log retention. Must be a multiple of 24h (the compactor enforces it).
+loki_retention: 720h # 30 days
+
+# Max series a single metric query may produce. The Security dashboard's
+# distinct-IP / top-IP panels group by src_ip, which materializes one series
+# per distinct blocked IP before the outer count()/topk() collapses them —
+# Loki's stock limit of 500 fails on a single day of scanner traffic (~5k
+# distinct IPs, "maximum number of series (500) reached"). The panels run
+# instant queries (one sample per series) so a high ceiling costs little; it
+# mainly guards Explore range queries.
+loki_max_query_series: 50000
+
+# Subqueries a querier runs in parallel (Loki splits a query per day/shard —
+# a 30-day panel fans out to ~700 subqueries). The stock 4 makes a whole
+# dashboard refresh queue for tens of seconds on longer ranges.
+loki_querier_max_concurrent: 8

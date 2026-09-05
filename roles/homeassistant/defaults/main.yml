@@ -1,0 +1,76 @@
+---
+homeassistant_version: 2026.6.2
+homeassistant_venv_dir: /srv/homeassistant
+homeassistant_user: homeassistant
+homeassistant_config_dir: /home/homeassistant/.homeassistant
+homeassistant_port: 8123
+
+# FoxESS Modbus integration (https://github.com/nathanmarlor/foxess_modbus) — optional.
+# Reads the inverter directly over Modbus (no cloud), so it is a config-flow integration
+# with NO YAML package and needs NO deploy-time secrets: the role just installs the
+# custom component, then after deploy you add "FoxESS - Modbus" in the HA UI (Settings >
+# Devices & Services > Add Integration) and enter the connection. For a Modbus TCP adapter
+# (Fox Wi-Fi/LAN dongle, or a USR-W630/Elfin EW11 RS485 bridge): inverter host IP, port 502,
+# and the inverter slave/Device ID (default 247, set on the inverter under Settings >
+# Communication > RS485). Set homeassistant_foxess_enabled: true to activate.
+homeassistant_foxess_enabled: false
+homeassistant_foxess_repo: https://github.com/nathanmarlor/foxess_modbus.git
+homeassistant_foxess_version: v1.15.0
+
+# Hildebrand Glow (DCC) integration — UK SMETS smart meter data pulled from the DCC
+# via the Hildebrand Glow API (https://github.com/jonandel/ha-hildebrandglow-dcc, the
+# maintained fork of the abandoned HandyHat repo). Optional; needs NO deploy-time
+# secrets — after deploy, add the "Hildebrand Glow (DCC)" integration in the HA UI
+# and enter your free Bright app credentials. Data is ~30 min delayed (half-hourly
+# DCC data), not real-time. Set homeassistant_glow_dcc_enabled: true to activate.
+homeassistant_glow_dcc_enabled: false
+homeassistant_glow_dcc_repo: https://github.com/jonandel/ha-hildebrandglow-dcc.git
+homeassistant_glow_dcc_version: v1.4.1
+
+# Auto-configure the integration via HA's config-flow REST API (the same flow the
+# UI drives) instead of adding it by hand, so a rebuilt HA reconfigures itself.
+# Needs an admin long-lived token plus your Bright app credentials (all vault-
+# encrypted in group_vars). The integration sets no unique_id, so its flow is NOT
+# idempotent — the role checks for an existing entry and only creates one when
+# none exists. Leave false to just install the component and configure it in the UI.
+homeassistant_glow_dcc_autoconfigure: false
+# When autoconfiguring, also add the integration's "Usage (today)" / "Cost
+# (today)" sensors to HA's Energy dashboard (grid source for electricity, gas
+# source for gas). Non-destructive: only adds a grid/gas source when none exists.
+homeassistant_glow_dcc_energy_dashboard: true
+homeassistant_glow_dcc_username: >-
+  {{ undef(hint='Set homeassistant_glow_dcc_username to your Hildebrand Bright app username/email') }}
+homeassistant_glow_dcc_password: >-
+  {{ undef(hint='Set homeassistant_glow_dcc_password to your Hildebrand Bright app password (vault-encrypt it)') }}
+
+# Admin Home Assistant long-lived access token used to drive the HA REST API at
+# deploy time (create one under your HA profile > Security). Only needed when an
+# *_autoconfigure flag above is set; vault-encrypt it.
+homeassistant_api_token: >-
+  {{ undef(hint='Set homeassistant_api_token to an admin HA long-lived access token (vault-encrypt it)') }}
+
+# --- Local-MQTT Glow route (Hildebrand Glow IHD/CAD) ---
+# The other half of the mutual-exclusivity: active when the MQTT route is chosen
+# (mosquitto_enabled, group_vars/mosquitto) AND the device is present. Templated
+# ahead of the hardware — when the stick arrives, set homeassistant_glow_mqtt_enabled
+# true and the device id, then re-run. The role sets up the HA MQTT integration
+# (broker config entry from the mosquitto credentials), templates the Glow MQTT
+# sensor package, and wires those sensors into the Energy dashboard.
+homeassistant_glow_mqtt_enabled: false
+# The Glow device's MQTT id — the 12-hex MAC it uses in its topic path
+# (glow/<id>/SENSOR/electricitymeter). Find it in the Glow web UI / on the device.
+homeassistant_glow_mqtt_device_id: >-
+  {{ undef(hint='Set homeassistant_glow_mqtt_device_id to the Glow device MQTT id (12-hex MAC in its topic path)') }}
+# Set false for an electricity-only supply (skips the gas sensors + gas energy source).
+homeassistant_glow_mqtt_gas: true
+# Wire the Glow MQTT sensors into the Energy dashboard (grid + gas sources, with the
+# unit-rate sensors as the price so HA computes cost). Non-destructive (adds only
+# when no source of that type exists).
+homeassistant_glow_mqtt_energy_dashboard: true
+
+# HA -> MQTT broker connection (the broker config entry). Defaults to the local
+# mosquitto co-located on this LXC; the broker account comes from the mosquitto
+# role/group_vars (mosquitto_username defaults to 'homelab', mosquitto_password is
+# vault-encrypted in group_vars/mosquitto).
+homeassistant_mqtt_host: localhost
+homeassistant_mqtt_port: 1883

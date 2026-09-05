@@ -1,0 +1,15 @@
+---
+# Journal-only Alloy agents on every other host, shipping journald to Loki on
+# the monitoring container — this feeds the "Homelab Logs" Grafana dashboard.
+#
+# The monitoring host is excluded: its own Alloy install (monitoring.yml)
+# already collects the local journal alongside the OPNsense syslog pipeline.
+#
+# Runs after monitoring.yml so Loki is up before the agents push. They retry, so
+# a first-deploy gap only delays log flow — the ordering just avoids the noise.
+- name: Install Alloy log agents
+  hosts: lxc:proxmox:!monitoring
+  roles:
+    - role: homelab.core.alloy
+      alloy_syslog_enabled: false
+      alloy_geoip_enabled: false

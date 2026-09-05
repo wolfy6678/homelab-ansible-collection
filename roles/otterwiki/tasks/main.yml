@@ -1,0 +1,17 @@
+---
+# OtterWiki install: OS packages + user, then the git-backed content
+# repository, then the app itself (venv + config + systemd service), and
+# finally the post-start steps that need the service running (admin user
+# creation and seeding the external git mirror).
+
+- name: Install OS packages and create the service user
+  ansible.builtin.import_tasks: install.yml
+
+- name: Set up the wiki content git repository
+  ansible.builtin.import_tasks: repository.yml
+
+- name: Install and start the OtterWiki service
+  ansible.builtin.import_tasks: service.yml
+
+- name: Create the admin user and seed the git mirror
+  ansible.builtin.import_tasks: admin.yml

@@ -1,0 +1,12 @@
+---
+# Defined order matters: daemon-reload runs before the immediate push so a
+# changed unit file is live when the push fires.
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Push to TRMNL now
+  ansible.builtin.systemd_service:
+    name: trmnl-homelab-push.service
+    state: started
+  when: monitoring_trmnl_enabled | bool

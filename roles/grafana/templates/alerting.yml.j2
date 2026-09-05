@@ -1,0 +1,110 @@
+# Managed by Ansible — do not edit on the host
+# Grafana alerting: Discord contact point + notification policy + alert rules.
+# Infrastructure-level alerts only — service up/down alerting is Gatus's job
+# (it Discord-alerts directly), so no rule here duplicates it.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: discord
+    receivers:
+      - uid: discord-homelab
+        type: discord
+        settings:
+          url: {{ grafana_discord_webhook_url | to_json }}
+
+policies:
+  - orgId: 1
+    receiver: discord
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+
+{# Each rule is A (instant Prometheus query) -> B (reduce last) -> C
+   (threshold). The Grafana `{{ $labels.* }}` templates below live inside
+   Jinja string literals, so Jinja passes them through untouched. #}
+{% set alert_rules = [
+  {'uid': 'homelab-host-down',
+   'title': 'Host down',
+   'expr': 'up{job="node"}',
+   'op': 'lt', 'threshold': 1, 'for': '5m',
+   'summary': 'node_exporter on {{ $labels.instance }} has been unreachable for 5 minutes — host or agent down.'},
+  {'uid': 'homelab-disk-full',
+   'title': 'Root filesystem nearly full',
+   'expr': '100 - (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"} * 100)',
+   'op': 'gt', 'threshold': grafana_alert_disk_percent, 'for': '15m',
+   'summary': 'Root filesystem on {{ $labels.instance }} is over ' ~ grafana_alert_disk_percent ~ '% full.'},
+  {'uid': 'homelab-memory-pressure',
+   'title': 'Memory pressure',
+   'expr': '100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)',
+   'op': 'gt', 'threshold': grafana_alert_memory_percent, 'for': '30m',
+   'summary': 'Memory on {{ $labels.instance }} has been over ' ~ grafana_alert_memory_percent ~ '% for 30 minutes — consider a bigger allocation (lxc_overrides.memory).'},
+  {'uid': 'homelab-backup-stale',
+   'title': 'Backup stale',
+   'expr': '(time() - homelab_backup_last_success_timestamp_seconds) / 3600',
+   'op': 'gt', 'threshold': grafana_alert_backup_max_age_hours, 'for': '5m',
+   'summary': 'Backup {{ $labels.job_name }} on {{ $labels.instance }} has not succeeded for over ' ~ grafana_alert_backup_max_age_hours ~ 'h.'},
+  {'uid': 'homelab-backup-failed',
+   'title': 'Backup failed',
+   'expr': 'homelab_backup_exit_code',
+   'op': 'gt', 'threshold': 0, 'for': '5m',
+   'summary': 'The last {{ $labels.job_name }} backup run on {{ $labels.instance }} exited non-zero — check the journal on that host (restic-backup.service, or the unit owning that job).'},
+  {'uid': 'homelab-cert-expiry',
+   'title': 'Certificate expiring soon',
+   'expr': 'min by (name) (gatus_results_certificate_expiration_seconds) / 86400',
+   'op': 'lt', 'threshold': grafana_alert_cert_min_days, 'for': '1h',
+   'summary': 'The certificate for {{ $labels.name }} expires in under ' ~ grafana_alert_cert_min_days ~ ' days — automatic renewal is broken.'},
+  {'uid': 'homelab-disk-unhealthy',
+   'title': 'Disk failing SMART',
+   'expr': 'smartmon_device_smart_healthy',
+   'op': 'lt', 'threshold': 1, 'for': '15m',
+   'summary': 'Disk {{ $labels.disk }} ({{ $labels.model }}) on the Proxmox host reports SMART health FAILED — replace it.'},
+] %}
+groups:
+  - orgId: 1
+    name: homelab
+    folder: Homelab Alerts
+    interval: 1m
+    rules:
+{% for r in alert_rules %}
+      - uid: {{ r.uid }}
+        title: {{ r.title | to_json }}
+        condition: C
+        for: {{ r['for'] }}
+        # OK on no-data: backup/SMART/cert metrics only exist once their
+        # writers have run — don't alert on a freshly deployed stack.
+        noDataState: OK
+        execErrState: Error
+        labels:
+          source: ansible
+        annotations:
+          summary: {{ r.summary | to_json }}
+        data:
+          - refId: A
+            relativeTimeRange: { from: 600, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: {{ r.expr | to_json }}
+              instant: true
+          - refId: B
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            relativeTimeRange: { from: 0, to: 0 }
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: {{ r.op }}
+                    params: [{{ r.threshold }}]
+{% endfor %}

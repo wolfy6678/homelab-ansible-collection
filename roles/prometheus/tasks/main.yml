@@ -1,0 +1,81 @@
+---
+- name: Create prometheus system user
+  ansible.builtin.user:
+    name: "{{ prometheus_user }}"
+    system: true
+    create_home: false
+
+- name: Create prometheus directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: "{{ prometheus_install_dir }}/{{ prometheus_version }}", owner: root }
+    - { path: "{{ prometheus_config_dir }}", owner: root }
+    - { path: "{{ prometheus_data_dir }}", owner: "{{ prometheus_user }}" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Download and extract Prometheus
+  ansible.builtin.unarchive:
+    src: >-
+      https://github.com/prometheus/prometheus/releases/download/{{ prometheus_version }}/prometheus-{{
+      prometheus_version | regex_replace('^v', '') }}.linux-amd64.tar.gz
+    dest: "{{ prometheus_install_dir }}/{{ prometheus_version }}"
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+    creates: "{{ prometheus_install_dir }}/{{ prometheus_version }}/prometheus"
+
+- name: Symlink prometheus binaries into PATH
+  ansible.builtin.file:
+    src: "{{ prometheus_install_dir }}/{{ prometheus_version }}/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - prometheus
+    - promtool
+  notify: Restart prometheus
+
+# pve-exporter re-resolves the PVE hostname on every API request (~20 per
+# scrape — pveproxy doesn't keep-alive), flooding the LAN resolver with
+# A+AAAA queries; pinning it locally silences that and drops the per-request
+# DNS latency. No-op while prometheus_proxmox_pin_ip is empty.
+- name: Pin the Proxmox hostname to its LAN IP
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ prometheus_proxmox_pin_ip }} {{ prometheus_pve_target }}"
+    regexp: '\s{{ prometheus_pve_target | regex_escape }}$'
+  when: prometheus_proxmox_pin_ip | length > 0
+
+- name: Template Prometheus configuration
+  ansible.builtin.template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: root
+    group: "{{ prometheus_user }}"
+    mode: "0640"
+    validate: /usr/local/bin/promtool check config %s
+  notify: Restart prometheus
+
+- name: Template Prometheus systemd unit
+  ansible.builtin.template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    mode: "0644"
+  notify: Restart prometheus
+
+- name: Install and configure prometheus-pve-exporter
+  ansible.builtin.import_tasks: pve_exporter.yml
+  when: prometheus_pve_exporter_enabled | bool
+
+- name: Enable and start Prometheus
+  ansible.builtin.systemd_service:
+    name: prometheus
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,72 @@
+---
+# Preflight: the terraform_* variables are the consuming repo's Terraform root
+# module inputs — the collection ships only the reusable single-LXC module, so
+# it cannot default them. Assert them up front rather than letting Terraform
+# fail on a missing variable minutes into a run. See docs/terraform.md.
+- name: Assert the required Terraform inventory variables are set
+  ansible.builtin.assert:
+    that:
+      - terraform_proxmox_state is defined
+      - terraform_proxmox_api_url is defined
+      - terraform_proxmox_user is defined
+      - terraform_proxmox_password is defined
+      - terraform_proxmox_lxc_password is defined
+      - terraform_proxmox_lvm_storage is defined
+      - terraform_proxmox_ssh_key is defined
+    fail_msg: >-
+      Set terraform_proxmox_state (present/absent), terraform_proxmox_api_url,
+      terraform_proxmox_user, terraform_proxmox_password,
+      terraform_proxmox_lxc_password, terraform_proxmox_lvm_storage and
+      terraform_proxmox_ssh_key in group_vars/proxmox/. These are passed
+      straight through to your Terraform root module — see docs/terraform.md.
+    quiet: true
+
+- name: Build LXC definitions from inventory
+  ansible.builtin.include_tasks: build_lxcs.yml
+
+- name: Apply LXC Terraform
+  community.general.terraform:
+    project_path: "{{ proxmox_terraform_project_path }}"
+    state: "{{ terraform_proxmox_state }}"
+    force_init: true
+    overwrite_init: true
+    complex_vars: true
+    variables:
+      proxmox_api_url: "{{ terraform_proxmox_api_url }}"
+      proxmox_user: "{{ terraform_proxmox_user }}"
+      proxmox_password: "{{ terraform_proxmox_password }}"
+      proxmox_lxc_password: "{{ terraform_proxmox_lxc_password }}"
+      proxmox_lvm_storage: "{{ terraform_proxmox_lvm_storage }}"
+      proxmox_ssh_key: "{{ terraform_proxmox_ssh_key }}"
+      lxcs: "{{ proxmox_terraform_lxcs | default({}) }}"
+  delegate_to: localhost
+  register: proxmox_terraform_output
+  # variables: carries the vaulted Proxmox API + LXC root passwords and SSH key;
+  # the terraform module does not mark them no_log, so suppress here.
+  no_log: true
+
+- name: Start LXCs
+  community.proxmox.proxmox:
+    api_host: "{{ inventory_hostname }}"
+    api_user: "{{ terraform_proxmox_user }}"
+    api_password: "{{ terraform_proxmox_password }}"
+    vmid: "{{ item.value }}"
+    state: started
+    validate_certs: false
+  delegate_to: localhost
+  loop: "{{ proxmox_terraform_output.outputs.lxc_vmids.value | default({}) | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  when: terraform_proxmox_state == 'present'
+  # api_password is the vaulted Proxmox password — keep it out of task output.
+  no_log: true
+
+- name: Configure TUN device passthrough for flagged LXCs
+  ansible.builtin.include_tasks: tun.yml
+  when: terraform_proxmox_state == 'present'
+
+- name: Configure scheduled vzdump backups
+  ansible.builtin.include_tasks: backup.yml
+  when:
+    - terraform_proxmox_state == 'present'
+    - proxmox_backup_enabled | bool

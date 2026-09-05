@@ -1,0 +1,21 @@
+---
+# Managed by Ansible — do not edit on the host
+# https://gethomepage.dev/configs/services/
+#
+# Rendered from the homepage_services variable (group_vars/homepage/main.yml).
+# Every key on an item other than `name` is passed through to Homepage
+# verbatim, so any Homepage service option — icon, href, description,
+# siteMonitor, ping, widget, statusStyle, ... — works without a role change.
+{% for group in homepage_services %}
+- {{ group.group | to_json }}:
+{% for item in group['items'] %}
+    - {{ item.name | to_json }}:
+{{ (item | dict2items | rejectattr('key', 'equalto', 'name') | list | items2dict)
+   | to_nice_yaml(indent=2) | trim | indent(8, true) }}
+{% endfor %}
+{% endfor %}
+{% if not homepage_services %}
+# homepage_services is empty — no service tiles are configured. See
+# roles/homepage/README.md for a copy-paste block covering every service this
+# collection can deploy.
+{% endif %}

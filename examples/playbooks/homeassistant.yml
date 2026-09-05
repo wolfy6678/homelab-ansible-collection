@@ -1,0 +1,9 @@
+---
+- name: Install and start Home Assistant
+  hosts: homeassistant
+  pre_tasks:
+    - name: Wait for connection
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+  roles:
+    - homelab.core.homeassistant

@@ -1,0 +1,47 @@
+---
+# Gatus uptime monitoring. See roles/gatus/README.md.
+
+# Required here rather than as a role default: the monitoring host's prometheus
+# role reads it via hostvars to build the gatus scrape target, and role defaults
+# are invisible in hostvars. /metrics shares this port.
+gatus_port: 8080
+
+# Discord alerting — optional. Anyone with the URL can post to the channel, so
+# vault-encrypt it. Alerts fire after gatus_alert_failure_threshold consecutive
+# failures and resolve after gatus_alert_success_threshold successes.
+# gatus_discord_webhook_url: !vault |
+#   ...
+
+# What to monitor. The collection ships an empty list — this is the set of
+# services deployed in examples/inventory/hosts.yml. Delete what you don't run.
+#
+# Certificate-expiry checks are NOT listed here: gatus derives a `certificates`
+# group automatically from caddy_sites.
+gatus_endpoints:
+  - name: homepage
+    url: "http://{{ hostvars[groups['homepage'][0]].ansible_host }}:3000"
+  - name: home-assistant
+    url: "http://{{ hostvars[groups['homeassistant'][0]].ansible_host }}:8123"
+  - name: jellyfin
+    url: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096/health"
+  - name: otterwiki
+    url: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}/-/healthz"
+  - name: grafana
+    url: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000/api/health"
+  - name: prometheus
+    # prometheus_route_prefix moves /-/healthy under the prefix when Prometheus
+    # is served from a Caddy sub-path; default '' when it serves at root.
+    url: >-
+      http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:9090{{
+      hostvars[groups['monitoring'][0]].prometheus_route_prefix | default('') }}/-/healthy
+
+  # headscale, probed over its real public hostname so the check validates the
+  # full certificate chain and tracks expiry. The role adds an /etc/hosts pin so
+  # the split-horizon name resolves on the LAN. Without headscale_server_url,
+  # fall back to a bare TCP connect: url "tcp://<ip>:443", conditions
+  # ["[CONNECTED] == true"].
+  - name: headscale
+    url: "{{ gatus_headscale_server_url }}/health"
+    conditions:
+      - "[STATUS] == 200"
+      - "[CERTIFICATE_EXPIRATION] > {{ gatus_certificate_min_validity }}"

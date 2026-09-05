@@ -1,0 +1,126 @@
+---
+# gethomepage.dev dashboard. See roles/homepage/README.md.
+#
+# The tile list is data: every key on an item except `name` is passed straight
+# through to Homepage, so the whole service schema works with no role change
+# (https://gethomepage.dev/configs/services/). The collection ships an empty
+# list — this is the set of services in examples/inventory/hosts.yml.
+
+homepage_title: Homelab
+
+# Widget credentials, referenced from homepage_services below. Kept as separate
+# variables so the vault blocks stay readable. Encrypt each with:
+#   ansible-vault encrypt_string --vault-id homelab@prompt '<secret>' \
+#     --name 'vault_homepage_proxmox_token_secret'
+#
+# The Home Assistant token and the Jellyfin API key can only be created AFTER
+# those services are set up, so leave their widgets commented out on the first
+# pass and add them on a later run.
+#
+# vault_homepage_opnsense_api_key: !vault |
+#   ...
+# vault_homepage_opnsense_api_secret: !vault |
+#   ...
+# vault_homepage_proxmox_token_secret: !vault |
+#   ...
+# vault_homepage_homeassistant_api_key: !vault |
+#   ...
+# vault_homepage_jellyfin_api_key: !vault |
+#   ...
+
+homepage_services:
+  - group: Infrastructure
+    items:
+      - name: OPNsense
+        icon: opnsense.svg
+        href: https://192.168.50.1
+        description: Firewall and router
+        siteMonitor: https://192.168.50.1
+        widget:
+          type: opnsense
+          url: https://192.168.50.1
+          # API key/secret from System > Access > Users > API keys.
+          # Vault-encrypt the secret and reference it here.
+          username: "{{ vault_homepage_opnsense_api_key }}"
+          password: "{{ vault_homepage_opnsense_api_secret }}"
+          # Add `wan: <iface>` if your WAN interface isn't named "wan".
+
+      - name: Proxmox
+        icon: proxmox.svg
+        href: https://pve.example.lan:8006
+        description: Proxmox VE hypervisor
+        siteMonitor: https://pve.example.lan:8006
+        widget:
+          type: proxmox
+          url: https://pve.example.lan:8006
+          username: "root@pam!homepage"
+          password: "{{ vault_homepage_proxmox_token_secret }}"
+
+      - name: Grafana
+        icon: grafana.svg
+        href: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000"
+        description: Metrics dashboards
+        siteMonitor: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000"
+
+      - name: Prometheus
+        icon: prometheus.svg
+        href: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:9090"
+        description: Metrics database
+        siteMonitor: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:9090"
+
+      - name: Headscale
+        icon: headscale.svg
+        # The control server is only reachable over its public hostname. The
+        # siteMonitor check runs from the LAN, so it needs NAT reflection
+        # enabled on the firewall (usually on by default) to go green.
+        href: "{{ hostvars[groups['headscale'][0]].headscale_server_url }}"
+        description: Remote-access VPN control server
+        siteMonitor: "{{ hostvars[groups['headscale'][0]].headscale_server_url }}"
+
+  - group: Applications
+    items:
+      - name: Home Assistant
+        icon: home-assistant.svg
+        href: "http://{{ hostvars[groups['homeassistant'][0]].ansible_host }}:8123"
+        description: Home automation platform
+        siteMonitor: "http://{{ hostvars[groups['homeassistant'][0]].ansible_host }}:8123"
+        # The widget needs a long-lived access token, which can only be created
+        # after HA onboarding — add this block on a later run.
+        # widget:
+        #   type: homeassistant
+        #   url: "http://{{ hostvars[groups['homeassistant'][0]].ansible_host }}:8123"
+        #   key: "{{ vault_homepage_homeassistant_api_key }}"
+
+      - name: Gatus
+        icon: gatus.svg
+        href: "http://{{ hostvars[groups['gatus'][0]].ansible_host }}:8080"
+        description: Endpoint monitoring
+        siteMonitor: "http://{{ hostvars[groups['gatus'][0]].ansible_host }}:8080"
+        widget:
+          type: gatus
+          url: "http://{{ hostvars[groups['gatus'][0]].ansible_host }}:8080"
+
+      - name: OtterWiki
+        icon: otter-wiki.svg
+        href: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}"
+        description: Homelab documentation wiki
+        siteMonitor: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}"
+
+      - name: Jellyfin
+        icon: jellyfin.svg
+        href: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+        description: Media server
+        siteMonitor: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+        # The Jellyfin API key (Dashboard > API Keys) can only be created after
+        # first-run setup — add this block on a later run.
+        # widget:
+        #   type: jellyfin
+        #   url: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
+        #   key: "{{ vault_homepage_jellyfin_api_key }}"
+
+# The layout block is derived from the group names above, so they can't drift.
+# Override per-group options here if you want something other than 2 columns:
+# homepage_layout:
+#   Applications:
+#     style: row
+#     columns: 3

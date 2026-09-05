@@ -1,0 +1,119 @@
+---
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Grafana signing key
+  ansible.builtin.get_url:
+    url: https://apt.grafana.com/gpg.key
+    dest: /etc/apt/keyrings/grafana.asc
+    mode: "0644"
+
+- name: Configure Grafana APT source
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/grafana.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://apt.grafana.com
+      Suites: stable
+      Components: main
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/grafana.asc
+  register: grafana_apt_source
+
+- name: Install Grafana
+  ansible.builtin.apt:
+    name: grafana
+    state: present
+    update_cache: "{{ grafana_apt_source is changed }}"
+
+# A minimal grafana.ini — Grafana falls back to its compiled defaults for every
+# key we omit. admin_password seeds the initial admin login only: a password
+# later changed in the UI is stored in Grafana's DB and need not be mirrored here.
+- name: Configure Grafana server and admin credentials
+  ansible.builtin.template:
+    src: grafana-homelab.ini.j2
+    dest: /etc/grafana/grafana.ini
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  notify: Restart grafana
+
+- name: Provision the Prometheus datasource
+  ansible.builtin.template:
+    src: datasource.yml.j2
+    dest: /etc/grafana/provisioning/datasources/prometheus.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+# Alerting: Discord contact point + notification policy + infrastructure alert
+# rules, file-provisioned. Gated on the webhook being set. NB provisioning is
+# additive — removing the file stops managing the resources but does not delete
+# ones already in Grafana's DB (delete them in the Alerting UI if disabling).
+- name: Provision Grafana alerting (Discord contact point + rules)
+  ansible.builtin.template:
+    src: alerting.yml.j2
+    dest: /etc/grafana/provisioning/alerting/homelab.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  no_log: true
+  when: grafana_discord_webhook_url | length > 0
+  notify: Restart grafana
+
+- name: Remove Grafana alerting provisioning (no webhook set)
+  ansible.builtin.file:
+    path: /etc/grafana/provisioning/alerting/homelab.yml
+    state: absent
+  when: grafana_discord_webhook_url | length == 0
+  notify: Restart grafana
+
+- name: Create the provisioned dashboards directory
+  ansible.builtin.file:
+    path: /var/lib/grafana/dashboards
+    state: directory
+    owner: grafana
+    group: grafana
+    mode: "0755"
+
+- name: Configure the dashboards provider
+  ansible.builtin.copy:
+    src: dashboards-provider.yml
+    dest: /etc/grafana/provisioning/dashboards/homelab.yml
+    owner: root
+    group: grafana
+    mode: "0640"
+  notify: Restart grafana
+
+# Loki-backed boards (the Security board + the fleet journal board) are only
+# installed when the Loki datasource is provisioned (grafana_loki_url set).
+# No restart notify: the file provider above rescans the dashboards dir every
+# 30s (updateIntervalSeconds), so a restart would only drop live sessions and
+# interrupt alert evaluation for nothing.
+- name: Install the starter dashboards
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/var/lib/grafana/dashboards/{{ item }}"
+    owner: grafana
+    group: grafana
+    mode: "0644"
+  loop: >-
+    {{ ['homelab-overview.json', 'opnsense.json', 'headscale.json',
+        'proxmox.json', 'host-detail.json', 'service-uptime.json',
+        'backups.json']
+       + (['opnsense-security.json', 'homelab-logs.json'] if grafana_loki_url else []) }}
+
+- name: Enable and start Grafana
+  ansible.builtin.systemd_service:
+    name: grafana-server
+    state: started
+    enabled: true
+    daemon_reload: true

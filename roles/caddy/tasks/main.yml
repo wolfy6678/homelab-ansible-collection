@@ -1,0 +1,138 @@
+---
+- name: Create apt keyrings directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Caddy signing key
+  ansible.builtin.get_url:
+    url: https://dl.cloudsmith.io/public/caddy/stable/gpg.key
+    dest: /etc/apt/keyrings/caddy-stable.asc
+    mode: "0644"
+
+- name: Configure Caddy APT source
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/caddy-stable.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://dl.cloudsmith.io/public/caddy/stable/deb/debian
+      Suites: any-version
+      Components: main
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/caddy-stable.asc
+  register: caddy_apt_source
+
+- name: Install Caddy
+  ansible.builtin.apt:
+    name: caddy
+    state: present
+    update_cache: "{{ caddy_apt_source is changed }}"
+
+# --- DNS-01 plugin + token (acme mode only) --------------------------------
+# The stock apt Caddy has no DNS provider plugins, so real certs via DNS-01
+# (which is required because the LAN services are never internet-reachable) need
+# the caddy-dns plugin built into the binary. `caddy add-package` swaps the
+# on-disk binary for a custom build including it; a restart loads it. Runs before
+# the Caddyfile template so its `caddy validate` sees the acme_dns module.
+- name: List installed Caddy modules
+  ansible.builtin.command:
+    cmd: caddy list-modules
+  register: caddy_installed_modules
+  changed_when: false
+  when: caddy_tls_mode == 'acme'
+
+- name: Install the caddy-dns provider plugin (DNS-01)
+  ansible.builtin.command:
+    cmd: caddy add-package {{ caddy_dns_package }}
+  changed_when: true
+  register: caddy_add_package
+  when:
+    - caddy_tls_mode == 'acme'
+    - "'dns.providers.' ~ caddy_dns_provider not in caddy_installed_modules.stdout"
+
+- name: Deploy the Caddy DNS API token (systemd EnvironmentFile)
+  ansible.builtin.template:
+    src: caddy.env.j2
+    dest: /etc/caddy/caddy.env
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  register: caddy_env_file
+  when: caddy_tls_mode == 'acme'
+
+- name: Create the Caddy systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/caddy.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: caddy_tls_mode == 'acme'
+
+- name: Load the DNS token env file into the Caddy unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/caddy.service.d/dns-token.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Service]
+      EnvironmentFile=/etc/caddy/caddy.env
+  register: caddy_dropin_file
+  when: caddy_tls_mode == 'acme'
+
+# The token reaches caddy only via the EnvironmentFile, which is read at process
+# START — a `systemctl reload` won't pick it up, and a drop-in change needs a
+# daemon-reload first. So restart (with daemon-reload) whenever the binary, token
+# or drop-in changed. The DropInPaths check also self-heals a box where a prior
+# run wrote the drop-in but failed before its restart handler flushed: systemd
+# hasn't loaded the drop-in there, so the running unit lacks the token and a plain
+# reload would fail with a blank token. Idempotent: once loaded + unchanged, skip.
+- name: Read the drop-ins active in the running caddy unit
+  ansible.builtin.systemd_service:
+    name: caddy
+  register: caddy_unit
+  changed_when: false
+  when: caddy_tls_mode == 'acme'
+
+- name: Restart caddy to (re)load the DNS token into its environment
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: restarted
+    daemon_reload: true
+  when:
+    - caddy_tls_mode == 'acme'
+    - >-
+      caddy_add_package is changed or caddy_env_file is changed
+      or caddy_dropin_file is changed
+      or 'dns-token.conf' not in (caddy_unit.status.DropInPaths | default(''))
+
+- name: Template the Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: /etc/caddy/Caddyfile
+    owner: root
+    group: root
+    mode: "0644"
+    validate: caddy validate --adapter caddyfile --config %s
+  # `caddy validate` runs as a one-off subprocess that does NOT load the systemd
+  # EnvironmentFile, so the acme_dns `{env.CADDY_DNS_API_TOKEN}` placeholder would
+  # expand to empty and the DNS module would reject the blank token. Provide it
+  # here (only in acme mode — undef in internal mode, so guard the reference).
+  # no_log keeps the secret out of any validate error output.
+  environment:
+    CADDY_DNS_API_TOKEN: "{{ caddy_dns_api_token if caddy_tls_mode == 'acme' else '' }}"
+  no_log: "{{ caddy_tls_mode == 'acme' }}"
+  notify: Reload caddy
+
+- name: Enable and start Caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: started
+    enabled: true
+    daemon_reload: true

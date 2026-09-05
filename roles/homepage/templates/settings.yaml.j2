@@ -1,0 +1,26 @@
+---
+# Managed by Ansible — do not edit on the host
+# https://gethomepage.dev/configs/settings/
+
+title: {{ homepage_title | to_json }}
+theme: {{ homepage_theme | to_json }}
+color: {{ homepage_color | to_json }}
+headerStyle: {{ homepage_header_style | to_json }}
+statusStyle: {{ homepage_status_style | to_json }}
+useEqualHeights: true
+hideVersion: true
+
+quicklaunch:
+  searchDescriptions: true
+  hideInternetSearch: true
+  hideVisitURL: true
+
+{% if homepage_services %}
+# One layout entry per homepage_services group, derived from that list so the
+# names can never drift apart. Per-group overrides come from homepage_layout.
+layout:
+{% for group in homepage_services %}
+  {{ group.group }}:
+{{ (homepage_layout.get(group.group, homepage_layout_default)) | to_nice_yaml(indent=2) | trim | indent(4, true) }}
+{% endfor %}
+{% endif %}

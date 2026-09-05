@@ -1,0 +1,62 @@
+---
+# File-level application-data backups with restic (encrypted, deduplicated,
+# off-site-capable) — complements the Proxmox vzdump backups (which cover whole
+# containers). Disabled by default: the role is a no-op until backup_enabled is
+# true AND a repository + password are set in group_vars/backup/main.yml.
+backup_enabled: false
+
+# restic repository URL — backend-agnostic. Examples:
+#   sftp:backup@192.168.50.10:/srv/restic/homelab   (NAS over SSH)
+#   rest:https://user:pass@nas:8000/homelab          (rest-server)
+#   b2:my-bucket:homelab                             (Backblaze B2, off-site)
+#   s3:s3.amazonaws.com/my-bucket/homelab            (S3-compatible)
+backup_restic_repository: >-
+  {{ undef(hint='Set backup_restic_repository to a restic repo URL, e.g.
+  sftp:backup@nas:/srv/restic/homelab or b2:bucket:homelab') }}
+# Encryption password for the repo. Vault-encrypt it. Losing this = losing the
+# backups, so store a copy somewhere safe outside the homelab.
+backup_restic_password: >-
+  {{ undef(hint='Set backup_restic_password to the restic repository password
+  (vault-encrypt it; keep an off-site copy — it cannot be recovered)') }}
+# Extra environment for the chosen backend (vault-encrypt secret values), e.g.
+#   backup_restic_env:
+#     B2_ACCOUNT_ID: "..."
+#     B2_ACCOUNT_KEY: "..."
+backup_restic_env: {}
+
+# Daily run time (systemd OnCalendar) with a randomized spread so co-located
+# hosts don't all hit the repo at once.
+backup_schedule: "03:00"
+backup_random_delay: "30min"
+# Retention applied by `restic forget --prune` after each backup.
+backup_retention: "--keep-daily 7 --keep-weekly 4 --keep-monthly 6"
+# Optional extra restic --exclude patterns applied to every path.
+backup_exclude: []
+
+# Where the run wrapper drops its homelab_backup_* metrics for node_exporter's
+# textfile collector (node_exporter_textfile_dir, group_vars/all) — feeds the
+# Backups Grafana dashboard and the backup-stale/failed alerts.
+backup_textfile_dir: "{{ node_exporter_textfile_dir }}"
+
+# What to back up, per host. EMPTY BY DEFAULT — which applications you run and
+# where their data lives is site-specific, so the collection ships no path list.
+#
+# backup_default_paths is a {short hostname: [paths]} map, and backup_paths
+# looks this host up in it. Set the map once in group_vars/backup/main.yml to
+# keep every host's paths in one place, or set backup_paths directly on a host
+# to bypass the map entirely. A host with no entry backs up nothing (the role
+# skips it), so adding a host to the `backup` group is only half the job.
+#
+# The data directories for the services this collection deploys:
+#
+#   backup_default_paths:
+#     homeassistant:
+#       - /home/homeassistant/.homeassistant   # homeassistant_config_dir
+#     otterwiki:
+#       - /var/lib/otterwiki                   # otterwiki_data_dir
+#     jellyfin:
+#       - /var/lib/jellyfin
+#
+# See roles/backup/README.md for the full walk-through.
+backup_default_paths: {}
+backup_paths: "{{ backup_default_paths[inventory_hostname_short] | default([]) }}"

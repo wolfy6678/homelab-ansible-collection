@@ -1,0 +1,17 @@
+[Unit]
+Description=fail2ban Prometheus exporter
+After=network-online.target fail2ban.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root: the fail2ban control socket is root-only (srwx------) and
+# fail2ban offers no socket-permission knob. The exporter is read-only and
+# reachable from the LAN only (nothing forwards this port from the WAN, and
+# the tailnet ACL does not include it).
+ExecStart=/usr/local/bin/fail2ban_exporter --collector.f2b.socket=/var/run/fail2ban/fail2ban.sock --web.listen-address=:{{ headscale_fail2ban_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

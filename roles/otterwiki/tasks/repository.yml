@@ -1,0 +1,62 @@
+---
+# The wiki's data dir plus its git-backed content repository. OtterWiki commits
+# page content here itself; this file just ensures the repo exists and recovers
+# the edge case where a crashed first start left content uncommitted.
+
+- name: Create data directory
+  ansible.builtin.file:
+    path: "{{ otterwiki_data_dir }}"
+    state: directory
+    owner: "{{ otterwiki_user }}"
+    group: "{{ otterwiki_user }}"
+    mode: "0750"
+
+- name: Create wiki content repository directory
+  ansible.builtin.file:
+    path: "{{ otterwiki_repository_dir }}"
+    state: directory
+    owner: "{{ otterwiki_user }}"
+    group: "{{ otterwiki_user }}"
+    mode: "0750"
+
+- name: Initialise wiki content git repository  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git init {{ otterwiki_repository_dir }}
+    creates: "{{ otterwiki_repository_dir }}/.git"
+  become: true
+  become_user: "{{ otterwiki_user }}"
+
+- name: Check whether the wiki content repository has any commits  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git -C {{ otterwiki_repository_dir }} rev-parse --verify --quiet HEAD
+  register: otterwiki_repo_head
+  failed_when: false
+  changed_when: false
+  become: true
+  become_user: "{{ otterwiki_user }}"
+
+- name: Check for never-committed wiki content  # noqa: command-instead-of-module
+  ansible.builtin.command:
+    cmd: git -C {{ otterwiki_repository_dir }} status --porcelain
+  register: otterwiki_repo_status
+  changed_when: false
+  become: true
+  become_user: "{{ otterwiki_user }}"
+  when: otterwiki_repo_head.rc != 0
+
+# A crashed first start can leave the initial home.md written to the working
+# tree but never committed.  OtterWiki's initial-commit logic is guarded by
+# "working tree is empty", so it never retries — and /-/healthz reports 503
+# forever because git log fails on a commitless repo.  Commit the orphaned
+# content (same author OtterWiki's own initial commit uses) to recover.
+- name: Recover never-committed wiki content  # noqa: command-instead-of-module
+  ansible.builtin.shell:
+    cmd: >-
+      git -C {{ otterwiki_repository_dir }} add -A &&
+      git -C {{ otterwiki_repository_dir }}
+      -c user.name='Otterwiki Robot' -c user.email='noreply@otterwiki'
+      commit -m 'Initial commit'
+  changed_when: true
+  when: otterwiki_repo_head.rc != 0 and otterwiki_repo_status.stdout != ''
+  become: true
+  become_user: "{{ otterwiki_user }}"

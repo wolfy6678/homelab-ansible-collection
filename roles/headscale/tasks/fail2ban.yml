@@ -1,0 +1,89 @@
+---
+# fail2ban on the tailnet's front door: headscale is the homelab's only
+# internet-exposed service (OPNsense forwards TCP 443 here), so ban sources
+# that spray junk TLS handshakes or probe paths. python3-systemd lets fail2ban
+# read the journal (headscale doesn't log to a file); nftables provides the
+# ban mechanism (works in the unprivileged LXC — tailscale already uses it).
+- name: Install fail2ban
+  ansible.builtin.apt:
+    name:
+      - fail2ban
+      - python3-systemd
+      - nftables
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install the headscale fail2ban filter
+  ansible.builtin.copy:
+    src: fail2ban-headscale.conf
+    dest: /etc/fail2ban/filter.d/headscale.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Configure the headscale fail2ban jail
+  ansible.builtin.template:
+    src: fail2ban-jail-headscale.local.j2
+    dest: /etc/fail2ban/jail.d/headscale.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+# Restarting is safe for existing bans — fail2ban persists them in its sqlite
+# db and re-applies them on start.
+- name: Enable and start fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    state: started
+    enabled: true
+
+# --- Prometheus exporter (ban/failure counts for the monitoring LXC) ---------
+- name: Install the fail2ban Prometheus exporter
+  when: headscale_fail2ban_exporter_enabled | bool
+  block:
+    - name: Create fail2ban exporter install directory
+      ansible.builtin.file:
+        path: "{{ headscale_fail2ban_exporter_install_dir }}/v{{ headscale_fail2ban_exporter_version }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # The tarball is flat (LICENSE, README.md, fail2ban_exporter) — no
+    # --strip-components needed, unlike the node_exporter one.
+    - name: Download and extract the fail2ban exporter
+      ansible.builtin.unarchive:
+        src: >-
+          https://gitlab.com/hctrdev/fail2ban-prometheus-exporter/-/releases/v{{
+          headscale_fail2ban_exporter_version }}/downloads/fail2ban_exporter_{{
+          headscale_fail2ban_exporter_version }}_linux_amd64.tar.gz
+        dest: "{{ headscale_fail2ban_exporter_install_dir }}/v{{ headscale_fail2ban_exporter_version }}"
+        remote_src: true
+        creates: "{{ headscale_fail2ban_exporter_install_dir }}/v{{ headscale_fail2ban_exporter_version }}/fail2ban_exporter"
+
+    - name: Symlink fail2ban exporter binary into PATH
+      ansible.builtin.file:
+        src: "{{ headscale_fail2ban_exporter_install_dir }}/v{{ headscale_fail2ban_exporter_version }}/fail2ban_exporter"
+        dest: /usr/local/bin/fail2ban_exporter
+        state: link
+        force: true
+      notify: Restart fail2ban exporter
+
+    - name: Template fail2ban exporter systemd unit
+      ansible.builtin.template:
+        src: fail2ban-exporter.service.j2
+        dest: /etc/systemd/system/fail2ban-exporter.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart fail2ban exporter
+
+    - name: Enable and start the fail2ban exporter
+      ansible.builtin.systemd_service:
+        name: fail2ban-exporter
+        state: started
+        enabled: true
+        daemon_reload: true

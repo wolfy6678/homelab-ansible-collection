@@ -1,0 +1,9 @@
+---
+# Config-only changes (a new Caddyfile) just need a graceful reload. daemon_reload
+# is set so the reload can't be blocked by a pending unit change on disk (the
+# restart task above owns picking up EnvironmentFile / drop-in changes).
+- name: Reload caddy
+  ansible.builtin.systemd_service:
+    name: caddy
+    state: reloaded
+    daemon_reload: true

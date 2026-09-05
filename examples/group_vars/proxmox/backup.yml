@@ -1,0 +1,16 @@
+---
+# Scheduled Proxmox vzdump backups — whole-container restore points, which
+# complement the file-level restic backups in group_vars/backup. Off by default.
+#
+#   1. Add a backup-capable storage in the PVE GUI (Datacenter > Storage): an
+#      NFS/CIFS share or a Proxmox Backup Server, with content type
+#      "VZDump backup file". Note its storage ID.
+#   2. Set the two values below and re-run the lxc playbook.
+#
+# The job is create-only: to change the schedule or retention later, edit it in
+# Datacenter > Backup, or delete it there and re-run.
+#
+# proxmox_backup_enabled: true
+# proxmox_backup_storage: nas-backup
+# proxmox_backup_schedule: "02:00"
+# proxmox_backup_retention: "keep-daily=7,keep-weekly=4"

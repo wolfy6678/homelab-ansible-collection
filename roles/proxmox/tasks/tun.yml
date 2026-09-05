@@ -1,0 +1,40 @@
+---
+# Passes /dev/net/tun into containers flagged with `lxc_tun: true` in the
+# inventory, via PVE's native device passthrough (`dev0`, PVE 8.2+). The
+# telmate provider can't express it, so `pct set` does it on the host; PVE
+# handles the cgroup allow, bind mount and uid mapping for unprivileged LXCs.
+# Required for Tailscale/WireGuard subnet routing inside an unprivileged LXC.
+# NB do NOT manage raw lxc.* keys here with blockinfile: PVE parses leading
+# `#` lines in the guest config as the description field and re-serializes
+# them URI-encoded on every config rewrite, destroying the markers — which
+# made every run re-insert the block and reboot the container.
+- name: Read config of TUN-flagged containers
+  ansible.builtin.command:
+    cmd: "pct config {{ proxmox_terraform_output.outputs.lxc_vmids.value[hostvars[item].inventory_hostname_short] }}"
+  loop: "{{ groups['lxc'] | default([]) }}"
+  when: hostvars[item].lxc_tun | default(false) | bool
+  register: proxmox_tun_config
+  changed_when: false
+
+- name: Enable TUN device passthrough
+  ansible.builtin.command:
+    cmd: "pct set {{ proxmox_terraform_output.outputs.lxc_vmids.value[hostvars[item.item].inventory_hostname_short] }} -dev0 /dev/net/tun"
+  loop: "{{ proxmox_tun_config.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - item is not skipped
+    - "'dev0:' not in item.stdout"
+  register: proxmox_tun_set
+  changed_when: true
+
+# A reboot (stop+start) is needed for the device entry to take effect; only
+# bounce containers that just gained it.
+- name: Reboot containers whose TUN config changed  # noqa: no-handler
+  ansible.builtin.command:
+    cmd: "pct reboot {{ proxmox_terraform_output.outputs.lxc_vmids.value[hostvars[item.item.item].inventory_hostname_short] }}"
+  loop: "{{ proxmox_tun_set.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.item | default('') }}"
+  when: item is changed
+  changed_when: true

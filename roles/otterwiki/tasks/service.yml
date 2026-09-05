@@ -1,0 +1,54 @@
+---
+- name: Install OtterWiki into virtualenv
+  ansible.builtin.pip:
+    name:
+      - "otterwiki=={{ otterwiki_version }}"
+      - gunicorn
+    virtualenv: "{{ otterwiki_venv_dir }}"
+    virtualenv_command: python3 -m venv
+  notify: Restart otterwiki
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: "{{ otterwiki_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Template settings.cfg
+  ansible.builtin.template:
+    src: settings.cfg.j2
+    dest: "{{ otterwiki_config_dir }}/settings.cfg"
+    owner: root
+    group: "{{ otterwiki_user }}"
+    mode: "0640"
+  notify: Restart otterwiki
+
+- name: Template systemd service unit
+  ansible.builtin.template:
+    src: otterwiki.service.j2
+    dest: /etc/systemd/system/otterwiki.service
+    mode: "0644"
+  notify: Restart otterwiki
+
+- name: Enable and start otterwiki service
+  ansible.builtin.systemd_service:
+    name: otterwiki
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# systemd returns before the gunicorn workers have imported the app; on the
+# very first start they are still creating the db tables and committing the
+# initial home.md, and the admin script's own app import would race them on
+# the same sqlite db and git repo.  Any healthz response (200 or 503) means a
+# worker has fully finished importing, which is all the admin script needs —
+# 503 only reflects content-repo health (e.g. no commits yet), which gatus
+# monitors continuously; don't block the deploy on it here.
+- name: Wait until OtterWiki is up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ otterwiki_port }}/-/healthz"
+    status_code: [200, 503]
+  register: otterwiki_healthz
+  until: otterwiki_healthz.status in [200, 503]
+  retries: 30
+  delay: 2

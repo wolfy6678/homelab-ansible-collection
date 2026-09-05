@@ -1,0 +1,11 @@
+[Unit]
+Description=restic backup of homelab application data ({{ inventory_hostname_short }})
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/restic/homelab.env
+# Snapshot + prune via the wrapper, which also writes homelab_backup_* textfile
+# metrics for the Backups dashboard / alerting.
+ExecStart=/usr/local/bin/restic-backup

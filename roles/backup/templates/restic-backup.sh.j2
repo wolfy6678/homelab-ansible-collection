@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Managed by Ansible — do not edit on the host
+# restic snapshot + prune (what the two ExecStart lines used to do), wrapped so
+# every run writes node_exporter textfile metrics (homelab_backup_*). Those
+# drive the "Backups" Grafana dashboard and the backup-stale/failed alerts —
+# without them a broken nightly backup fails silently in the journal.
+# Secrets come from the systemd unit's EnvironmentFile.
+set -u
+
+TEXTFILE_DIR={{ backup_textfile_dir }}
+PROM_FILE="$TEXTFILE_DIR/restic-backup.prom"
+
+start=$(date +%s)
+{# Exclude patterns and paths are single-quoted so the shell can't glob-expand
+   or word-split them — restic must receive the patterns verbatim. #}
+/usr/bin/restic backup --tag homelab --host {{ inventory_hostname_short }}{% for pattern in backup_exclude %} --exclude '{{ pattern }}'{% endfor %}{% for path in backup_paths %} '{{ path }}'{% endfor %}
+
+rc=$?
+if [ "$rc" -eq 0 ]; then
+  /usr/bin/restic forget --prune --tag homelab --host {{ inventory_hostname_short }} {{ backup_retention }}
+  rc=$?
+fi
+end=$(date +%s)
+
+# Carry the previous success timestamp forward on failure, so "time since last
+# success" keeps counting up instead of vanishing with the rewritten file.
+last_success=""
+if [ "$rc" -eq 0 ]; then
+  last_success=$end
+elif [ -f "$PROM_FILE" ]; then
+  last_success=$(awk '/^homelab_backup_last_success_timestamp_seconds/ {print $NF}' "$PROM_FILE")
+fi
+
+mkdir -p "$TEXTFILE_DIR"
+tmp=$(mktemp "$PROM_FILE.XXXXXX")
+{
+  echo '# HELP homelab_backup_last_run_timestamp_seconds Unix time the backup job last finished (success or not).'
+  echo '# TYPE homelab_backup_last_run_timestamp_seconds gauge'
+  echo "homelab_backup_last_run_timestamp_seconds{job_name=\"restic\"} $end"
+  echo '# HELP homelab_backup_exit_code Exit code of the last backup run (0 = success).'
+  echo '# TYPE homelab_backup_exit_code gauge'
+  echo "homelab_backup_exit_code{job_name=\"restic\"} $rc"
+  echo '# HELP homelab_backup_duration_seconds Duration of the last backup run.'
+  echo '# TYPE homelab_backup_duration_seconds gauge'
+  echo "homelab_backup_duration_seconds{job_name=\"restic\"} $((end - start))"
+  if [ -n "$last_success" ]; then
+    echo '# HELP homelab_backup_last_success_timestamp_seconds Unix time of the last successful backup.'
+    echo '# TYPE homelab_backup_last_success_timestamp_seconds gauge'
+    echo "homelab_backup_last_success_timestamp_seconds{job_name=\"restic\"} $last_success"
+  fi
+} > "$tmp"
+chmod 0644 "$tmp"
+mv "$tmp" "$PROM_FILE"
+
+exit "$rc"

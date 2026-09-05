@@ -1,0 +1,5 @@
+---
+# Minimum ansible-core the roles are supported on. 2.15+ is required for the
+# `undef(hint=...)` pattern used across the role defaults to fail with a
+# descriptive message when a required variable is unset.
+requires_ansible: ">=2.15.0"

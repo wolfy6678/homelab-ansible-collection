@@ -1,0 +1,5 @@
+---
+- name: Back up application data with restic
+  hosts: backup
+  roles:
+    - homelab.core.backup

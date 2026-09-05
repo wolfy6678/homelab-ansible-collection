@@ -1,0 +1,16 @@
+---
+ansible_user: root
+
+# node_exporter's textfile-collector directory. Declared here, in group_vars/all,
+# because four things share it: node_exporter passes it to the collector, and the
+# backup and proxmox_node roles write .prom files into it. A file dropped
+# anywhere else is silently never scraped, so keep one source of truth.
+node_exporter_textfile_dir: /var/lib/node_exporter/textfile
+
+# Shared MQTT account. In group_vars/all rather than group_vars/mosquitto so
+# hosts outside the mosquitto group (any MQTT client you add later) can read it.
+mosquitto_username: homelab
+# ansible-vault encrypt_string --vault-id homelab@prompt '<password>' --name 'mosquitto_password'
+# mosquitto_password: !vault |
+#   $ANSIBLE_VAULT;1.2;AES256;homelab
+#   ...

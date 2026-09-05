@@ -1,0 +1,71 @@
+---
+# The whole homelab, in dependency order. Every playbook here is idempotent and
+# can also be run on its own — see the README for the "just this one service"
+# workflow.
+#
+# The order is not arbitrary. Each step below explains what it depends on.
+
+# The network foundation first: the DNS overrides that make the clean hostnames
+# resolve. A no-op until opnsense_manage_enabled, so this costs nothing if you
+# manage the firewall by hand.
+- name: Reconcile OPNsense firewall resources
+  import_playbook: playbooks/opnsense.yml
+
+# The hypervisor before the guests: this puts the apt repos and the container OS
+# template in place, so Terraform has a template to clone.
+- name: Configure the Proxmox VE host
+  import_playbook: playbooks/proxmox-node.yml
+
+- name: Create Proxmox LXCs
+  import_playbook: playbooks/lxc.yml
+
+# Hardening before services, so every container is patched automatically from
+# the moment it exists.
+- name: Configure automatic security upgrades
+  import_playbook: playbooks/unattended-upgrades.yml
+
+# Metrics agents before the metrics server, so Prometheus has live targets from
+# its very first scrape rather than a screen of red.
+- name: Install node_exporter everywhere
+  import_playbook: playbooks/node-exporter.yml
+
+# --- Services ----------------------------------------------------------------
+- name: Install and start homepage
+  import_playbook: playbooks/homepage.yml
+
+# Mosquitto before Home Assistant: HA validates its MQTT config entry by
+# connecting to the broker, so the broker must already be running.
+- name: Install and start Mosquitto
+  import_playbook: playbooks/mosquitto.yml
+
+- name: Install and start Home Assistant
+  import_playbook: playbooks/homeassistant.yml
+
+- name: Install and start Gatus
+  import_playbook: playbooks/gatus.yml
+
+- name: Install and start Jellyfin
+  import_playbook: playbooks/jellyfin.yml
+
+- name: Install and start OtterWiki
+  import_playbook: playbooks/otterwiki.yml
+
+- name: Install and start Headscale
+  import_playbook: playbooks/headscale.yml
+
+# Caddy after the services it proxies, so every upstream is already answering
+# when the first certificate is issued and the first request arrives.
+- name: Install and start the Caddy reverse proxy
+  import_playbook: playbooks/caddy.yml
+
+# --- Observability -----------------------------------------------------------
+- name: Install and start Prometheus, Loki and Grafana
+  import_playbook: playbooks/monitoring.yml
+
+# Log agents after the log store, so they have somewhere to push.
+- name: Install Alloy log agents
+  import_playbook: playbooks/alloy-agent.yml
+
+# Backups last: application data is captured after every service is up to date.
+- name: Back up application data with restic
+  import_playbook: playbooks/backup.yml

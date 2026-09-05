@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh SMART disk-health metrics every {{ proxmox_node_smart_metrics_interval }}
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ proxmox_node_smart_metrics_interval }}
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

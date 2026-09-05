@@ -1,0 +1,25 @@
+# Managed by Ansible — do not edit on the host
+# https://otterwiki.com/Configuration
+SECRET_KEY = {{ otterwiki_secret_key | to_json }}
+SITE_NAME = {{ otterwiki_site_name | to_json }}
+REPOSITORY = {{ otterwiki_repository_dir | to_json }}
+SQLALCHEMY_DATABASE_URI = {{ ('sqlite:///' ~ otterwiki_data_dir ~ '/otterwiki.db') | to_json }}
+
+# Permissions: ANONYMOUS, REGISTERED or APPROVED
+READ_ACCESS = {{ otterwiki_read_access | to_json }}
+WRITE_ACCESS = {{ otterwiki_write_access | to_json }}
+ATTACHMENT_ACCESS = {{ otterwiki_attachment_access | to_json }}
+AUTO_APPROVAL = {{ otterwiki_auto_approval | bool }}
+# No SMTP server configured — confirmation mails cannot be sent
+EMAIL_NEEDS_CONFIRMATION = False
+# Only this email may ever register as admin (the role pre-creates it)
+ADMIN_USER_EMAIL = {{ otterwiki_admin_email | to_json }}
+{% if otterwiki_git_push_url is defined %}
+
+# Mirror every wiki change to the external git remote (push-only)
+GIT_REMOTE_PUSH_ENABLED = True
+GIT_REMOTE_PUSH_URL = {{ otterwiki_git_push_url | to_json }}
+{% if otterwiki_git_push_private_key is defined %}
+GIT_REMOTE_PUSH_PRIVATE_KEY = {{ otterwiki_git_push_private_key | to_json }}
+{% endif %}
+{% endif %}

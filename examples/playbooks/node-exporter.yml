@@ -1,0 +1,7 @@
+---
+# node_exporter runs on every container AND on the Proxmox host, so the
+# monitoring stack sees both the guests and the hypervisor.
+- name: Install node_exporter on all LXCs and the Proxmox host
+  hosts: lxc:proxmox
+  roles:
+    - homelab.core.node_exporter

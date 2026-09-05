@@ -1,0 +1,9 @@
+---
+- name: Install and start Headscale
+  hosts: headscale
+  # Facts are gathered inside the role, AFTER wait_for_connection: the proxmox
+  # role reboots this container to add the TUN device (lxc_tun), so the
+  # connection may not be up when the play starts.
+  gather_facts: false
+  roles:
+    - homelab.core.headscale

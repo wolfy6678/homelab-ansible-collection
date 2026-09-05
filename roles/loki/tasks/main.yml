@@ -1,0 +1,78 @@
+---
+- name: Create loki system user
+  ansible.builtin.user:
+    name: "{{ loki_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Install unzip (needed to extract the Loki release zip)
+  ansible.builtin.apt:
+    name: unzip
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Create loki directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: "0755"
+  loop:
+    - { path: "{{ loki_install_dir }}/{{ loki_version }}", owner: root }
+    - { path: "{{ loki_config_dir }}", owner: root }
+    - { path: "{{ loki_data_dir }}", owner: "{{ loki_user }}" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Download and extract Loki
+  ansible.builtin.unarchive:
+    src: "https://github.com/grafana/loki/releases/download/{{ loki_version }}/loki-linux-amd64.zip"
+    dest: "{{ loki_install_dir }}/{{ loki_version }}"
+    remote_src: true
+    creates: "{{ loki_install_dir }}/{{ loki_version }}/loki-linux-amd64"
+
+- name: Symlink loki binary into PATH
+  ansible.builtin.file:
+    src: "{{ loki_install_dir }}/{{ loki_version }}/loki-linux-amd64"
+    dest: /usr/local/bin/loki
+    state: link
+    force: true
+  notify: Restart loki
+
+- name: Template Loki configuration
+  ansible.builtin.template:
+    src: loki-config.yml.j2
+    dest: "{{ loki_config_dir }}/config.yml"
+    owner: root
+    group: "{{ loki_user }}"
+    mode: "0640"
+  notify: Restart loki
+
+- name: Template Loki systemd unit
+  ansible.builtin.template:
+    src: loki.service.j2
+    dest: /etc/systemd/system/loki.service
+    mode: "0644"
+  notify: Restart loki
+
+- name: Enable and start Loki
+  ansible.builtin.systemd_service:
+    name: loki
+    state: started
+    enabled: true
+    daemon_reload: true
+
+- name: Flush handlers so Loki is (re)started before the readiness check
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Loki to become ready
+  ansible.builtin.uri:
+    url: "http://localhost:{{ loki_port }}/ready"
+    status_code: [200]
+  register: loki_ready
+  retries: 30
+  delay: 5
+  until: loki_ready.status == 200

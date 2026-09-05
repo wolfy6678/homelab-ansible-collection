@@ -1,0 +1,37 @@
+---
+# Grafana visualization server. Installed from the official apt.grafana.com repo
+# (tracks latest stable, like jellyfin/caddy). Provisions a Prometheus datasource
+# and a starter "Homelab Overview" dashboard via file provisioning, so it works
+# on first start with no manual UI setup.
+grafana_port: 3000
+grafana_admin_user: admin
+grafana_admin_password: "{{ undef(hint='Set grafana_admin_password in group_vars/monitoring/main.yml (vault-encrypt it)') }}"
+
+# Public root URL when Grafana is fronted by Caddy under a sub-path (e.g.
+# https://monitoring.<domain>/grafana/). Empty = serve at root (no sub-path).
+# Set in group_vars/monitoring/main.yml. Trailing slash required.
+grafana_root_url: ""
+
+# Prometheus datasource URL — Prometheus is co-located on this LXC. If Prometheus
+# is served under a route-prefix (--web.external-url .../prometheus), include the
+# same prefix here (http://localhost:9090/prometheus) so the datasource hits its API.
+grafana_prometheus_url: "http://localhost:9090"
+
+# Loki datasource URL — Loki is co-located on this LXC (loki role). Set empty to
+# omit the Loki datasource + the OPNsense Security (log/geomap) dashboard.
+grafana_loki_url: "http://localhost:3100"
+
+# --- Alerting (optional) -------------------------------------------------------
+# File-provisioned alert rules + a Discord contact point, complementing the
+# Gatus service-down alerts with the infrastructure failures Gatus can't see:
+# host down, disk/memory pressure, stale/failed backups, expiring certificates,
+# failing disks. Set grafana_discord_webhook_url (vault-encrypt it in
+# group_vars/monitoring/main.yml — anyone with the URL can post to the channel)
+# to enable; empty disables + removes the provisioning file. A separate channel
+# from the Gatus webhook is nicer but the same one works fine.
+grafana_discord_webhook_url: ""
+# Rule thresholds (templates/alerting.yml.j2).
+grafana_alert_disk_percent: 85 # root filesystem used %, for 15m
+grafana_alert_memory_percent: 92 # memory used %, for 30m
+grafana_alert_backup_max_age_hours: 36 # daily backups: 36h = one missed run + slack
+grafana_alert_cert_min_days: 14 # Caddy renews ~30d out, so <14d = renewal broken

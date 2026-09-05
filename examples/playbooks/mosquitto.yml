@@ -1,0 +1,7 @@
+---
+# Runs before Home Assistant: HA validates its MQTT config entry by connecting
+# to the broker, so the broker has to be up first.
+- name: Install and start Mosquitto
+  hosts: mosquitto
+  roles:
+    - homelab.core.mosquitto

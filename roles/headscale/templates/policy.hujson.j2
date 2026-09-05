@@ -1,0 +1,23 @@
+// Managed by Ansible — do not edit on the host
+// Tailnet ACL (headscale policy v2, HuJSON — comments + trailing commas OK).
+// Enrolled devices may reach ONLY the dsts below over the approved subnet
+// route; everything else on the LAN (SSH, the Proxmox/OPNsense admin UIs,
+// direct service ports) is denied. ICMP is auto-allowed between src/dst pairs
+// that match a rule. See headscale_acl_* in the role defaults.
+{
+  "acls": [
+    {
+      "action": "accept",
+      "src": [
+{% for src in headscale_acl_srcs %}
+        "{{ src }}",
+{% endfor %}
+      ],
+      "dst": [
+{% for dst in headscale_acl_dsts %}
+        "{{ dst }}",
+{% endfor %}
+      ],
+    },
+  ],
+}

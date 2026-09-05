@@ -1,0 +1,5 @@
+---
+- name: Install and start Jellyfin
+  hosts: jellyfin
+  roles:
+    - homelab.core.jellyfin

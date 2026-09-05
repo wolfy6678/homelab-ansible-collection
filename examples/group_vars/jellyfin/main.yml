@@ -1,0 +1,24 @@
+---
+# Jellyfin media server. See roles/jellyfin/README.md.
+#
+# The first-run wizard is automated: the admin password is SET on first run
+# only, but library reconciliation authenticates with it on every run — so if
+# you change it in the UI later, mirror the change here.
+# ansible-vault encrypt_string --vault-id homelab@prompt '<password>' --name 'jellyfin_admin_password'
+# jellyfin_admin_password: !vault |
+#   ...
+
+# Where the libraries live inside the container. Attach real storage by
+# bind-mounting it via lxc_overrides.mountpoints in the inventory — without a
+# mount this is just an empty directory on the container's rootfs.
+jellyfin_media_dir: /mnt/media
+
+# Reconciled on every run: missing libraries are created; extras you add in the
+# UI, and per-library settings you change there, are left alone.
+jellyfin_libraries:
+  - name: Movies
+    type: movies
+    path: "{{ jellyfin_media_dir }}/movies"
+  - name: Shows
+    type: tvshows
+    path: "{{ jellyfin_media_dir }}/shows"

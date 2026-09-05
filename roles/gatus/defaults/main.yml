@@ -1,0 +1,86 @@
+---
+gatus_version: v5.36.0
+gatus_user: gatus
+gatus_install_dir: /opt/gatus
+gatus_config_dir: /etc/gatus
+gatus_data_dir: /var/lib/gatus
+# gatus_port is declared in group_vars/gatus/main.yml, NOT here: the
+# monitoring LXC's prometheus role reads it via hostvars to build its gatus
+# scrape target, and role defaults are invisible in hostvars.
+gatus_default_interval: 60s
+
+# Discord alerting — optional.  Set gatus_discord_webhook_url (NOT defined
+# here — set it in group_vars/gatus/main.yml, vault-encrypted since anyone
+# with the URL can post to the channel) to a Discord webhook URL (channel
+# settings > Integrations > Webhooks) to enable alerts on every endpoint:
+# alert after gatus_alert_failure_threshold consecutive failures, recovery
+# notification after gatus_alert_success_threshold consecutive successes.
+gatus_alert_failure_threshold: 3
+gatus_alert_success_threshold: 2
+
+# Go toolchain version used to build Gatus from source.
+# Must satisfy the go directive in Gatus's go.mod (currently go 1.26.3).
+gatus_go_version: "1.26.3"
+
+# --- Certificate expiry monitoring -------------------------------------------
+# One HTTPS check per Caddy clean hostname, validating the full served chain
+# end-to-end (DNS override -> Caddy -> cert) and exporting
+# gatus_results_certificate_expiration_seconds — that metric drives the
+# Certificate Expiry panel on the Service Uptime dashboard and the Grafana
+# cert-expiry alert. The names are derived from caddy_sites (group_vars/caddy)
+# via hostvars, so a site added or renamed there is monitored automatically.
+# The whole group is skipped when no caddy group exists in the inventory, and
+# degrades to no checks when that host hasn't declared caddy_sites yet — a role
+# default is invisible in hostvars, so without the default([]) this would raise
+# an attribute error from a role the operator wasn't even configuring.
+gatus_certificate_sites: >-
+  {{ (hostvars[groups['caddy'][0]].caddy_sites | default([])
+      | map(attribute='name') | list)
+     if (groups['caddy'] | default([])) else [] }}
+gatus_certificate_base_domain: >-
+  {{ (hostvars[groups['caddy'][0]].caddy_base_domain | default(''))
+     if (groups['caddy'] | default([])) else '' }}
+# Fail (and Discord-alert, when the webhook is set) once a cert has less than
+# this validity left. Caddy renews ~30 days out, so 10 days = renewal broken.
+# The endpoint entries themselves are rendered by config.yaml.j2 (a
+# `certificates` group appended after gatus_endpoints).
+gatus_certificate_min_validity: 240h
+gatus_certificate_check_interval: 5m
+
+# headscale's public URL, read from the headscale host (empty when the group is
+# absent or the URL isn't configured). Two uses:
+#   * tasks/main.yml pins this hostname to the headscale host's LAN IP in
+#     /etc/hosts. The name is split-horizon — it is deliberately not a Caddy
+#     site, so it has no LAN DNS override — and hairpin NAT is usually not
+#     configured, so without the pin a LAN-side probe cannot resolve it. The
+#     public certificate still validates, because SNI carries the hostname.
+#     Same trick the headscale role uses for its own subnet router.
+#   * it is the natural way to write a headscale endpoint in gatus_endpoints:
+#     "{{ gatus_headscale_server_url }}/health" probes the real public
+#     hostname, so the check validates the full chain and tracks expiry. With
+#     no URL set, fall back to a bare TCP connect on :443 (or :8080 if you set
+#     headscale_tls_enabled: false) with ["[CONNECTED] == true"].
+gatus_headscale_server_url: >-
+  {{ (hostvars[groups['headscale'][0]].headscale_server_url | default(''))
+     if (groups['headscale'] | default([])) else '' }}
+
+# Endpoints to monitor. EMPTY BY DEFAULT — which services exist is entirely up
+# to your inventory, so the collection ships no endpoint list. Define yours in
+# group_vars/gatus/main.yml; roles/gatus/README.md has a copy-paste block
+# covering every service this collection can deploy, and
+# examples/group_vars/gatus/main.yml is a working version of it.
+#
+# Each entry: name (required), url (required), plus optional group, interval
+# and conditions (a list; default ["[STATUS] == 200"]). URLs are normal Jinja,
+# so derive them from the inventory rather than hard-coding IPs, e.g.
+#
+#   gatus_endpoints:
+#     - name: jellyfin
+#       url: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096/health"
+#     - name: grafana
+#       url: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000/api/health"
+#
+# The `certificates` group configured above is appended on top of this list by
+# config.yaml.j2 and is derived from caddy_sites, so TLS checks need no entries
+# here.
+gatus_endpoints: []

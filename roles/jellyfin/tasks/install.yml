@@ -1,0 +1,43 @@
+---
+# Jellyfin is installed from the official apt repository
+# (https://jellyfin.org/docs/general/installation/linux/), which tracks the
+# latest stable release — the deb ships the jellyfin system user, systemd unit,
+# and jellyfin-ffmpeg, so the role only adds the repo, installs the package,
+# and ensures the media dir + running service.
+
+- name: Download Jellyfin signing key
+  ansible.builtin.get_url:
+    url: https://repo.jellyfin.org/jellyfin_team.gpg.key
+    dest: /etc/apt/keyrings/jellyfin.asc
+    mode: "0644"
+
+- name: Configure Jellyfin APT source
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/jellyfin.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://repo.jellyfin.org/debian
+      Suites: {{ ansible_distribution_release }}
+      Components: main
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/jellyfin.asc
+
+- name: Install Jellyfin
+  ansible.builtin.apt:
+    name: jellyfin
+    state: present
+    update_cache: true
+
+- name: Create media directory
+  ansible.builtin.file:
+    path: "{{ jellyfin_media_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Enable and start jellyfin service
+  ansible.builtin.systemd_service:
+    name: jellyfin
+    state: started
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,14 @@
+[Unit]
+Description=Prometheus PVE exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ prometheus_user }}
+ExecStart={{ prometheus_pve_exporter_venv }}/bin/pve_exporter --config.file {{ prometheus_config_dir }}/pve.yml --web.listen-address :{{ prometheus_pve_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

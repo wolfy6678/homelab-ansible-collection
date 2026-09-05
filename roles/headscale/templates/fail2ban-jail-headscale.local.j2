@@ -1,0 +1,17 @@
+# Managed by Ansible — do not edit on the host
+[DEFAULT]
+# Debian 13 ships no /var/log/auth.log (no rsyslog) — read the journal.
+backend = systemd
+# The LXC has nftables, not iptables.
+banaction = nftables-multiport
+banaction_allports = nftables-allports
+ignoreip = {{ headscale_fail2ban_ignoreip | join(' ') }}
+# Repeat offenders get exponentially longer bans.
+bantime.increment = true
+
+[headscale]
+enabled = true
+port = {{ headscale_listen_port }}
+maxretry = {{ headscale_fail2ban_maxretry }}
+findtime = {{ headscale_fail2ban_findtime }}
+bantime = {{ headscale_fail2ban_bantime }}
