@@ -12,6 +12,9 @@ __pycache__/
 # ansible-lint / ansible-compat scratch
 .ansible/
 
+# Molecule ephemeral state
+.molecule/
+
 # Scratch copy of examples/terraform with the module source repointed locally,
 # created by the CI step you can also run by hand.
 .ci-example-root/

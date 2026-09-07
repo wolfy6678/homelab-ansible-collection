@@ -52,9 +52,9 @@ jobs:
         run: |
           set -euo pipefail
           contents=$(tar tzf dist/*.tar.gz)
-          if grep -qE '\.terraform|\.tfstate|\.tfvars$|^\.github/|CLAUDE\.md' <<<"$contents"; then
+          if grep -qE '\.terraform|\.tfstate|\.tfvars$|^\.github/|^extensions/|CLAUDE\.md' <<<"$contents"; then
             echo "::error::unwanted files in the artefact:"
-            grep -E '\.terraform|\.tfstate|\.tfvars$|^\.github/|CLAUDE\.md' <<<"$contents"
+            grep -E '\.terraform|\.tfstate|\.tfvars$|^\.github/|^extensions/|CLAUDE\.md' <<<"$contents"
             exit 1
           fi
           # And assert the things that *must* ship actually did.
@@ -112,6 +112,42 @@ jobs:
           terraform init -backend=false
           terraform validate
 
+  molecule:
+    name: Molecule (${{ matrix.scenario }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # contracts runs on the controller in seconds; default builds a systemd
+        # container and converges four roles into it. Split so a contract
+        # regression reports in under a minute instead of waiting on Docker.
+        scenario: [contracts, default]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install molecule
+        run: |
+          python -m pip install --upgrade pip
+          pip install molecule ansible-core docker
+
+      - name: Install collection dependencies
+        # community.docker supplies both the docker_container module the create
+        # playbook uses and the connection plugin molecule talks to the
+        # container through.
+        run: ansible-galaxy collection install community.docker community.general
+
+      - name: Install the collection under test
+        # The scenarios address roles by FQCN (homelab.core.<role>), so the
+        # collection has to be resolvable rather than merely checked out.
+        run: ansible-galaxy collection install . --force
+
+      - name: molecule test
+        run: molecule test -s ${{ matrix.scenario }}
+
   version:
     name: Version consistency
     runs-on: ubuntu-latest
@@ -123,7 +159,7 @@ jobs:
     name: Tag and release
     # Only after every check above has passed, and only for a real push to main
     # — never for a pull request, which would tag code that isn't merged.
-    needs: [ansible, terraform, version]
+    needs: [ansible, terraform, version, molecule]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

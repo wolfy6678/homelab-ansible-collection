@@ -1,0 +1,32 @@
+---
+# The service-install pattern, end to end, in a systemd container: system user,
+# versioned install dir, symlink into PATH, templated config and unit, handler.
+# These four roles between them exercise every step of it and are quick enough
+# to run on every push.
+driver:
+  name: default
+  options:
+    managed: false
+    login_cmd_template: "docker exec -ti {instance} bash"
+    ansible_connection_options:
+      ansible_connection: community.docker.docker
+
+platforms:
+  - name: homelab-default
+    image: geerlingguy/docker-debian12-ansible:latest
+
+provisioner:
+  name: ansible
+  playbooks:
+    create: ../resources/create.yml
+    destroy: ../resources/destroy.yml
+  config_options:
+    defaults:
+      # The roles are addressed by their FQCN, so the collection under test has
+      # to be resolvable from the repo root.
+      interpreter_python: auto_silent
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles"
+
+verifier:
+  name: ansible

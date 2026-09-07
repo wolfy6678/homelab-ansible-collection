@@ -1,0 +1,10 @@
+---
+# Nothing is installed here; converge only has to exist for molecule's
+# sequence. The assertions all live in verify.yml.
+- name: Converge
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: No convergence needed
+      ansible.builtin.debug:
+        msg: Contract assertions run in the verify step.

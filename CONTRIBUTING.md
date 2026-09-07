@@ -6,8 +6,7 @@ looks nothing like the one it was developed against.
 
 ## Running the checks
 
-CI is offline static validation — there is no test suite and no Molecule, so
-these are the checks, and they are the same ones the workflow runs:
+These are the checks, and they are the same ones the workflow runs:
 
 ```bash
 # ansible-lint needs these on disk to resolve the modules the roles call
@@ -22,6 +21,41 @@ cd terraform/modules/lxc && terraform init -backend=false && terraform validate
 
 .github/scripts/check-version.sh                     # version pins agree everywhere
 ```
+
+## Molecule
+
+Two scenarios, under `extensions/molecule/`:
+
+```bash
+pip install molecule docker
+ansible-galaxy collection install community.docker
+ansible-galaxy collection install . --force   # scenarios use FQCN role names
+
+molecule test -s contracts    # controller only, seconds
+molecule test -s default      # systemd container, ~3 minutes
+molecule test --all
+```
+
+**`contracts`** needs no container. It asserts the inventory contract: that a
+default reaching into `groups['x'][0]` collapses to empty rather than erroring
+when that group is absent, that it derives the right value when the group is
+present, that the Prometheus and Homepage templates render valid config in both
+cases, and that each preflight `assert` fails with a message naming the variable
+and the file to set it in. Its plays run in order, and the bare-inventory play
+must stay first — the later plays `add_host`, which changes `groups` for the
+remainder of the run.
+
+**`default`** converges `node_exporter`, `unattended_upgrades`, `mosquitto` and
+`backup` into a Debian systemd container, re-runs to prove idempotence, and then
+asserts the end state rather than that tasks reported changed: units enabled and
+running, the binary symlinked into its versioned install dir, `/metrics` serving
+the textfile collector, the restic repository actually initialised, and 0600 on
+the files holding secrets.
+
+Adding a role to `default` is usually right when it installs cleanly in a
+container. Roles that talk to a hypervisor or a firewall API — `proxmox`,
+`proxmox_node`, `opnsense` — belong in `contracts` instead, where their derived
+values and assertions can be checked without the thing they manage.
 
 CI additionally inspects the built artefact (that `build_ignore` kept Terraform
 state, tfvars and provider binaries out, and that `roles/`, `docs/`, `examples/`

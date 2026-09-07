@@ -1,0 +1,11 @@
+---
+# The contracts scenario needs no infrastructure: it exercises variable and
+# template rendering on the controller. molecule still wants a create and a
+# destroy playbook, so give it one that does nothing.
+- name: No-op
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Nothing to create or destroy
+      ansible.builtin.debug:
+        msg: The contracts scenario runs entirely on the controller.

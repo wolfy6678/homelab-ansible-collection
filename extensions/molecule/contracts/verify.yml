@@ -1,0 +1,263 @@
+---
+# Ordering matters: the bare-inventory play runs FIRST, while the only host is
+# localhost and every groups['x'] lookup is empty. The later play adds hosts,
+# which changes `groups` for the rest of the run.
+
+- name: Guarded defaults collapse to empty on an inventory missing their group
+  hosts: localhost
+  gather_facts: true
+  vars:
+    root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+  tasks:
+    - name: Load the role defaults that reach across groups
+      ansible.builtin.include_vars:
+        file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
+      loop: [alloy, opnsense, gatus, prometheus, homepage]
+
+    - name: Every cross-group default renders empty rather than erroring
+      ansible.builtin.assert:
+        that:
+          - alloy_loki_push_url == ''
+          - opnsense_caddy_ip == ''
+          - opnsense_monitoring_source == ''
+          - opnsense_unbound_hosts == []
+          - gatus_certificate_sites == []
+          - gatus_certificate_base_domain == ''
+          - gatus_headscale_server_url == ''
+          - prometheus_proxmox_node_target == ''
+          - prometheus_pve_target == ''
+          - homepage_caddy_domain == ''
+        fail_msg: >-
+          A default that reads another group did not degrade on an inventory
+          without it. Unguarded, these raise "'list object' has no attribute 0"
+          part-way through a run.
+        quiet: true
+
+    - name: Render the Prometheus config against the bare inventory
+      ansible.builtin.template:
+        src: "{{ root }}/roles/prometheus/templates/prometheus.yml.j2"
+        dest: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/prometheus-bare.yml"
+        mode: "0644"
+
+    - name: Read the rendered config back
+      ansible.builtin.slurp:
+        src: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/prometheus-bare.yml"
+      register: prometheus_bare
+
+    - name: It is still valid YAML, with only the self-scrape job
+      vars:
+        rendered: "{{ prometheus_bare.content | b64decode | from_yaml }}"
+      ansible.builtin.assert:
+        that:
+          - rendered.scrape_configs | length == 1
+          - rendered.scrape_configs[0].job_name == 'prometheus'
+        fail_msg: >-
+          An inventory with no lxc/proxmox/gatus/headscale groups must still
+          render a valid Prometheus config containing just the self-scrape.
+          Got: {{ rendered.scrape_configs | default([]) | map(attribute='job_name') | list }}
+        quiet: true
+
+- name: Build a populated inventory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Add a caddy host that declares its sites
+      ansible.builtin.add_host:
+        name: caddy.example.lan
+        groups: [caddy, lxc]
+        ansible_host: 192.168.50.107
+        caddy_base_domain: example.com
+        caddy_sites:
+          - {name: grafana, upstream: "192.168.50.108:3000"}
+          - {name: wiki, upstream: "192.168.50.104:80"}
+
+    - name: Add the monitoring host
+      ansible.builtin.add_host:
+        name: monitoring.example.lan
+        groups: [monitoring, lxc]
+        ansible_host: 192.168.50.108
+
+    - name: Add a gatus host declaring the port prometheus reads
+      ansible.builtin.add_host:
+        name: gatus.example.lan
+        groups: [gatus, lxc]
+        ansible_host: 192.168.50.100
+        gatus_port: 8080
+
+    - name: Add a headscale host declaring its metrics contract
+      ansible.builtin.add_host:
+        name: headscale.example.lan
+        groups: [headscale, lxc]
+        ansible_host: 192.168.50.106
+        headscale_server_url: https://vpn.example.com
+        headscale_metrics_listen_addr: "0.0.0.0:9090"
+        headscale_fail2ban_enabled: true
+        headscale_fail2ban_exporter_enabled: true
+        headscale_fail2ban_exporter_port: 9191
+
+    - name: Add the Proxmox host
+      ansible.builtin.add_host:
+        name: pve.example.lan
+        groups: [proxmox]
+        ansible_host: 192.168.50.2
+
+- name: Derived values track the populated inventory
+  hosts: localhost
+  gather_facts: true
+  vars:
+    root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+  tasks:
+    - name: Load the same role defaults again
+      ansible.builtin.include_vars:
+        file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
+      loop: [alloy, opnsense, gatus, prometheus]
+
+    - name: Each default now derives from the inventory
+      ansible.builtin.assert:
+        that:
+          - alloy_loki_push_url == 'http://192.168.50.108:3100/loki/api/v1/push'
+          - opnsense_caddy_ip == '192.168.50.107'
+          - opnsense_monitoring_source == '192.168.50.108'
+          - gatus_certificate_sites == ['grafana', 'wiki']
+          - gatus_certificate_base_domain == 'example.com'
+          - opnsense_unbound_hosts | map(attribute='hostname') | list == ['grafana', 'wiki']
+          - prometheus_pve_target == 'pve.example.lan'
+          - prometheus_gatus_port | int == 8080
+          - prometheus_headscale_metrics_port | int == 9090
+        fail_msg: >-
+          A derived default did not track the inventory. These are the values
+          one role reads out of another host's group_vars, which is why they
+          cannot be role defaults on the reading side.
+        quiet: true
+
+    - name: Render the Prometheus config against the populated inventory
+      ansible.builtin.template:
+        src: "{{ root }}/roles/prometheus/templates/prometheus.yml.j2"
+        dest: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/prometheus-full.yml"
+        mode: "0644"
+
+    - name: Read the rendered config back
+      ansible.builtin.slurp:
+        src: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/prometheus-full.yml"
+      register: prometheus_full
+
+    - name: Every group in the inventory produced its scrape job
+      vars:
+        rendered: "{{ prometheus_full.content | b64decode | from_yaml }}"
+        jobs: "{{ rendered.scrape_configs | map(attribute='job_name') | list }}"
+      ansible.builtin.assert:
+        that:
+          - "'prometheus' in jobs"
+          - "'node' in jobs"
+          - "'gatus' in jobs"
+          - "'headscale' in jobs"
+          - "'fail2ban' in jobs"
+        fail_msg: "expected jobs missing from the rendered config — got {{ jobs }}"
+        quiet: true
+
+- name: Homepage passes service options through verbatim
+  hosts: localhost
+  gather_facts: false
+  vars:
+    root: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') }}"
+  tasks:
+    # set_fact, not play vars: an earlier play loaded the homepage defaults with
+    # include_vars, which outranks play vars and would otherwise leave
+    # homepage_services empty and this test silently passing on nothing.
+    - name: Define a service carrying an option the role has never heard of
+      ansible.builtin.set_fact:
+        homepage_services:
+          - group: Infrastructure
+            items:
+              - name: Thing
+                icon: thing.svg
+                href: http://192.168.50.50
+                some_future_option: true
+                widget:
+                  type: thing
+                  url: http://192.168.50.50
+                  key: secret
+
+    - name: Render the services config
+      ansible.builtin.template:
+        src: "{{ root }}/roles/homepage/templates/services.yaml.j2"
+        dest: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/services.yaml"
+        mode: "0644"
+
+    - name: Read the rendered config back
+      ansible.builtin.slurp:
+        src: "{{ lookup('env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/services.yaml"
+      register: services_yaml
+
+    - name: Unknown keys and nested widgets survive intact
+      vars:
+        rendered: "{{ services_yaml.content | b64decode | from_yaml }}"
+        item: "{{ rendered[0]['Infrastructure'][0]['Thing'] }}"
+      ansible.builtin.assert:
+        that:
+          - item.some_future_option is true
+          - item.widget.type == 'thing'
+          - item.widget.key == 'secret'
+          - item.icon == 'thing.svg'
+          - "'name' not in item"
+        fail_msg: >-
+          services.yaml.j2 must pass every key except `name` through to
+          Homepage untouched. Got: {{ item }}
+        quiet: true
+
+- name: Preflight assertions fail with an instruction, not a stack trace
+  hosts: localhost
+  gather_facts: false
+  # Nothing may be installed on the controller: the assert under test is each
+  # role's first task, so the role aborts there — and check mode makes the
+  # regression case (assert removed) harmless rather than destructive.
+  check_mode: true
+  tasks:
+    - name: The node_exporter role refuses to run without its textfile directory
+      block:
+        # Set but blank, not merely absent: a variable declared and left empty
+        # is the commoner mistake, and `is defined` alone would wave it through.
+        - name: Run the role with the required variable left blank
+          ansible.builtin.include_role:
+            name: homelab.core.node_exporter
+          vars:
+            node_exporter_textfile_dir: ""
+        - name: The role should not have got this far
+          ansible.builtin.fail:
+            msg: >-
+              node_exporter ran with node_exporter_textfile_dir unset. That
+              variable has to be asserted: it cannot be a role default, because
+              the backup and proxmox_node roles read it via hostvars.
+      rescue:
+        - name: The failure names the variable and where to set it
+          ansible.builtin.assert:
+            that:
+              - "'node_exporter_textfile_dir' in ansible_failed_result.msg"
+              - "'group_vars' in ansible_failed_result.msg"
+            fail_msg: >-
+              The role failed, but not with a usable message. Got:
+              {{ ansible_failed_result.msg | default('(no message)') }}
+            quiet: true
+
+    - name: The alloy role refuses to run with nowhere to push logs
+      block:
+        - name: Run the role against an inventory with no monitoring group
+          ansible.builtin.include_role:
+            name: homelab.core.alloy
+          vars:
+            alloy_loki_push_url: ""
+        - name: The role should not have got this far
+          ansible.builtin.fail:
+            msg: >-
+              alloy ran with no Loki endpoint. It would have installed a
+              collector shipping logs nowhere.
+      rescue:
+        - name: The failure explains both ways to fix it
+          ansible.builtin.assert:
+            that:
+              - "'alloy_loki_push_url' in ansible_failed_result.msg"
+              - "'monitoring' in ansible_failed_result.msg"
+            fail_msg: >-
+              The role failed, but not with a usable message. Got:
+              {{ ansible_failed_result.msg | default('(no message)') }}
+            quiet: true

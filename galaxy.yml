@@ -50,6 +50,10 @@ build_ignore:
   - .gitignore
   # Guidance for working ON this repository, not part of what consumers install.
   - CLAUDE.md
+  - CONTRIBUTING.md
+  # Molecule scenarios — development infrastructure, and they would otherwise
+  # ship a create.yml/converge.yml that means nothing to a consumer.
+  - extensions
   # ansible-lint / ansible-compat scratch dir — present after a local lint run
   # and otherwise silently shipped inside the artefact.
   - .ansible

@@ -1,0 +1,32 @@
+---
+# The inventory contract, with no containers: preflight assertions fire with a
+# usable message, guarded defaults collapse to empty on an inventory missing the
+# group they read, and the derived templates still render valid config.
+#
+# This is where the regressions actually happen — a role default that reaches
+# into groups['x'][0] works fine on the inventory it was written for and fails
+# on everyone else's. It runs in seconds, so it can gate every push.
+driver:
+  name: default
+  options:
+    managed: false
+
+platforms:
+  - name: localhost
+
+provisioner:
+  name: ansible
+  playbooks:
+    create: ../resources/noop.yml
+    destroy: ../resources/noop.yml
+  inventory:
+    host_vars:
+      # Everything here evaluates on the controller — no SSH, no container.
+      localhost:
+        ansible_connection: local
+        ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  env:
+    ANSIBLE_ROLES_PATH: "${MOLECULE_PROJECT_DIRECTORY}/roles"
+
+verifier:
+  name: ansible

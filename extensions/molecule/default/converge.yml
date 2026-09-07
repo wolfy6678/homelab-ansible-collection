@@ -1,0 +1,24 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    # Declared here rather than as role defaults because other roles read them
+    # via hostvars — the same reason the real inventory has to declare them.
+    node_exporter_textfile_dir: /var/lib/node_exporter/textfile
+
+    mosquitto_enabled: true
+    mosquitto_password: molecule-test-password
+
+    # A local restic repo, so the role's initialise-and-back-up path is
+    # exercised for real without needing a NAS or a cloud bucket.
+    backup_enabled: true
+    backup_restic_repository: /srv/restic-test
+    backup_restic_password: molecule-test-restic
+    backup_default_paths:
+      homelab-default:
+        - /etc/hostname
+  roles:
+    - homelab.core.node_exporter
+    - homelab.core.unattended_upgrades
+    - homelab.core.mosquitto
+    - homelab.core.backup

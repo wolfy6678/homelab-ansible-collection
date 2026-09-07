@@ -17,7 +17,7 @@ generic; anything site-specific belongs in the consumer's `group_vars`.
 
 ## Commands
 
-Offline static validation only; there is no test suite and no Molecule. CI
+Static validation plus two Molecule scenarios. CI
 (`.github/workflows/ci.yml`) runs these:
 
 ```bash
@@ -32,7 +32,34 @@ terraform fmt -check -recursive terraform examples/terraform
 cd terraform/modules/lxc && terraform init -backend=false && terraform validate
 
 .github/scripts/check-version.sh   # galaxy.yml version == every documented pin
+
+molecule test -s contracts         # seconds, no container
+molecule test -s default           # builds a systemd container, ~3 min
+molecule test --all                # both
 ```
+
+Molecule needs `molecule`, the `docker` Python SDK and the `community.docker`
+collection, and the collection itself installed (`ansible-galaxy collection
+install . --force`) because the scenarios address roles by FQCN.
+
+The two scenarios cover different things and both matter:
+
+- **`contracts`** runs entirely on the controller. It asserts that every
+  cross-group default collapses to empty on an inventory lacking that group,
+  that the same defaults derive correctly once the groups exist, that
+  `prometheus.yml.j2` renders valid YAML in both cases, that
+  `services.yaml.j2` passes an unknown key through verbatim, and that the
+  preflight assertions fail with a message naming the variable. Plays run in
+  order and the bare-inventory play must come first — later plays `add_host`,
+  which changes `groups` for the rest of the run. This is where the
+  regressions actually happen, and it costs seconds.
+- **`default`** converges `node_exporter`, `unattended_upgrades`, `mosquitto`
+  and `backup` into a systemd container, checks idempotence, then asserts the
+  end state: the binary symlink points into the versioned install dir, the
+  units are enabled and running, `/metrics` serves the textfile collector, the
+  restic repository was really initialised, and the secret-bearing files have
+  the modes they should. Between them those four roles exercise every step of
+  the service-install pattern.
 
 Plus two checks that are awkward to run by hand and live in the workflow:
 

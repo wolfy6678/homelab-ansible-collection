@@ -1,0 +1,42 @@
+---
+# Shared by the container scenarios: starts one systemd-capable container per
+# platform and hands molecule the inventory.
+#
+# The roles install systemd units and start them, so the container has to run a
+# real init rather than sleep — hence the systemd command, the cgroup mount and
+# the tmpfs entries. Without those, every `systemd_service` task fails with
+# "System has not been booted with systemd".
+- name: Create
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Start the test containers
+      community.docker.docker_container:
+        name: "{{ item.name }}"
+        image: "{{ item.image }}"
+        command: "{{ item.command | default('/lib/systemd/systemd') }}"
+        state: started
+        recreate: true
+        privileged: true
+        cgroupns_mode: host
+        volumes:
+          - /sys/fs/cgroup:/sys/fs/cgroup:rw
+        tmpfs:
+          - /run
+          - /run/lock
+          - /tmp
+      loop: "{{ molecule_yml.platforms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Hand the instances to molecule
+      ansible.builtin.copy:
+        dest: "{{ molecule_ephemeral_directory }}/instance_config.yml"
+        mode: "0600"
+        content: |
+          {% for platform in molecule_yml.platforms %}
+          - instance: {{ platform.name }}
+            address: {{ platform.name }}
+            user: root
+            connection: community.docker.docker
+          {% endfor %}
