@@ -7,7 +7,9 @@
 - name: Assert the required node_exporter inventory variables are set
   ansible.builtin.assert:
     that:
-      - node_exporter_textfile_dir is defined
+      # default('', true) catches undefined, null and '' in one check —
+      # a variable set but left blank is the commoner mistake.
+      - node_exporter_textfile_dir | default('', true) | length > 0
     fail_msg: >-
       Set node_exporter_textfile_dir in group_vars/all/main.yml (e.g.
       /var/lib/node_exporter/textfile). The backup and proxmox_node roles

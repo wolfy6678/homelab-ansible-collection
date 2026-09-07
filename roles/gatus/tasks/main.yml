@@ -11,7 +11,7 @@
 - name: Assert the required gatus inventory variables are set
   ansible.builtin.assert:
     that:
-      - gatus_port is defined
+      - gatus_port | default('', true) | string | length > 0
     fail_msg: >-
       Set gatus_port in group_vars/gatus/main.yml (e.g. 8080). It must be
       declared in your inventory, not as a role default, so the prometheus

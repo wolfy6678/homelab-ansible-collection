@@ -11,10 +11,13 @@
 - name: Assert the required headscale inventory variables are set
   ansible.builtin.assert:
     that:
-      - headscale_metrics_listen_addr is defined
-      - headscale_fail2ban_enabled is defined
+      - headscale_metrics_listen_addr | default('', true) | length > 0
+      - headscale_fail2ban_exporter_port | default('', true) | string | length > 0
+      # Booleans: only that they were declared — `false | length` errors, and
+      # false is a legitimate value the prometheus template acts on.
+      - headscale_fail2ban_enabled is defined and headscale_fail2ban_enabled is not none
       - headscale_fail2ban_exporter_enabled is defined
-      - headscale_fail2ban_exporter_port is defined
+        and headscale_fail2ban_exporter_enabled is not none
     fail_msg: >-
       Set headscale_metrics_listen_addr (e.g. "0.0.0.0:9090"),
       headscale_fail2ban_enabled, headscale_fail2ban_exporter_enabled and

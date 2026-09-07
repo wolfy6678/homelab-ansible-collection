@@ -6,13 +6,13 @@
 - name: Assert the required Terraform inventory variables are set
   ansible.builtin.assert:
     that:
-      - terraform_proxmox_state is defined
-      - terraform_proxmox_api_url is defined
-      - terraform_proxmox_user is defined
-      - terraform_proxmox_password is defined
-      - terraform_proxmox_lxc_password is defined
-      - terraform_proxmox_lvm_storage is defined
-      - terraform_proxmox_ssh_key is defined
+      - terraform_proxmox_state | default('', true) | length > 0
+      - terraform_proxmox_api_url | default('', true) | length > 0
+      - terraform_proxmox_user | default('', true) | length > 0
+      - terraform_proxmox_password | default('', true) | length > 0
+      - terraform_proxmox_lxc_password | default('', true) | length > 0
+      - terraform_proxmox_lvm_storage | default('', true) | length > 0
+      - terraform_proxmox_ssh_key | default('', true) | length > 0
     fail_msg: >-
       Set terraform_proxmox_state (present/absent), terraform_proxmox_api_url,
       terraform_proxmox_user, terraform_proxmox_password,
