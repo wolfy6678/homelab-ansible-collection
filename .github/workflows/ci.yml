@@ -34,9 +34,14 @@ jobs:
           pip install ansible-lint
 
       - name: Install collection dependencies
-        # galaxy.yml declares these; ansible-lint needs them on disk to
-        # resolve the modules the roles call.
-        run: ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense
+        # galaxy.yml declares the first three; ansible-lint needs them on disk
+        # to resolve the modules the roles call. community.docker is not a
+        # collection dependency — nothing a consumer installs uses it — but
+        # ansible-lint runs over the whole repo, and the molecule scenarios
+        # under extensions/ call community.docker.docker_container and connect
+        # through its connection plugin. Without it here, lint fails to resolve
+        # them.
+        run: ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense community.docker
 
       - name: ansible-lint (production profile)
         run: ansible-lint

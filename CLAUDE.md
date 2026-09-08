@@ -22,7 +22,8 @@ Static validation plus two Molecule scenarios. CI
 
 ```bash
 # Dependencies ansible-lint needs on disk to resolve the modules roles call
-ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense
+# (community.docker too: lint covers extensions/molecule, which uses it)
+ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense community.docker
 
 ansible-lint                       # production profile, from the repo root (~4 min)
 ansible-lint roles/prometheus      # lint a single role

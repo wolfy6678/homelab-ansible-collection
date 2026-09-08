@@ -10,7 +10,9 @@ These are the checks, and they are the same ones the workflow runs:
 
 ```bash
 # ansible-lint needs these on disk to resolve the modules the roles call
-ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense
+# (community.docker for the molecule scenarios under extensions/, which lint
+# covers too)
+ansible-galaxy collection install community.general community.proxmox oxlorg.opnsense community.docker
 
 ansible-lint                                         # production profile, from the repo root
 ansible-lint roles/prometheus                        # or a single role
