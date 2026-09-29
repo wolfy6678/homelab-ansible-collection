@@ -11,3 +11,4 @@ collections:
   #   community.general  — terraform + npm modules
   #   community.proxmox  — starting the LXCs after Terraform
   #   oxlorg.opnsense    — the OPNsense API modules
+  #   community.docker   — Docker Compose, for Project NOMAD

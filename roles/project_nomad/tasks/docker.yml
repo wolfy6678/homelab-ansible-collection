@@ -1,0 +1,53 @@
+---
+# Docker from Docker's own apt repository rather than upstream's
+# `curl get.docker.com | sh`, so it is pinned to a signed source and upgraded by
+# unattended-upgrades/apt like everything else. Debian's docker.io package is
+# no substitute: NOMAD needs the Compose v2 plugin (`docker compose`).
+#
+# Docker inside an unprivileged LXC needs the nesting and keyctl features —
+# nesting is always on in terraform/modules/lxc; keyctl comes from
+# lxc_overrides. Without keyctl, dockerd starts but every container fails with
+# a keyring "permission denied".
+
+- name: Install Docker repository prerequisites
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      # community.docker.docker_compose_v2 parses compose output with PyYAML
+      - python3-yaml
+    state: present
+    update_cache: true
+
+- name: Download Docker signing key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Configure Docker APT source
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.sources
+    mode: "0644"
+    content: |
+      Types: deb
+      URIs: https://download.docker.com/linux/{{ ansible_facts['distribution'] | lower }}
+      Suites: {{ ansible_facts['distribution_release'] }}
+      Components: stable
+      Architectures: amd64
+      Signed-By: /etc/apt/keyrings/docker.asc
+
+- name: Install Docker Engine and the Compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+
+- name: Enable and start docker
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true

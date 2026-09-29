@@ -7,6 +7,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `project_nomad` role: Project NOMAD, the offline knowledge server, with its
+  admin image pinned and its secrets from the inventory. It installs Docker
+  Engine in the LXC — NOMAD's admin starts every content app as a container, so
+  there is no native install — and needs `keyctl` on the container. Adds a
+  dependency on `community.docker`.
 - Molecule tests, run in CI on every push. `contracts` asserts the inventory
   contract on the controller in seconds — guarded defaults collapsing to empty
   on an inventory without the group they read, deriving correctly when it is

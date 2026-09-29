@@ -1,0 +1,29 @@
+---
+# Project NOMAD — offline knowledge server. See roles/project_nomad/README.md.
+#
+# Needs keyctl on the LXC (set in the inventory) because NOMAD runs on Docker.
+
+# Pinned admin image. Upgrade by bumping this, never by stepping it down — the
+# admin's database migrations are forward-only.
+project_nomad_version: 1.34.1
+
+# Content (ZIMs, AI models, maps) is large. To keep it off the rootfs,
+# bind-mount storage in with lxc_overrides.mountpoints and point this at it.
+# project_nomad_storage_dir: /mnt/nomad
+
+# Generate with: openssl rand -hex 32 (16+ characters)
+# project_nomad_app_key: !vault |
+#   ...
+
+# MySQL takes these on first start only — changing them later breaks the
+# admin's connection rather than rotating the password.
+# project_nomad_db_password: !vault |
+#   ...
+# project_nomad_db_root_password: !vault |
+#   ...
+
+# Dozzle (container logs, linked from Settings) has no authentication.
+project_nomad_dozzle_enabled: true
+
+# The AI Assistant (Ollama) is off by default — NOMAD only installs it if
+# someone does so from the UI, and there is no variable to change that.

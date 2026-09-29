@@ -1,0 +1,5 @@
+---
+- name: Install and start Project NOMAD
+  hosts: project_nomad
+  roles:
+    - homelab.core.project_nomad

@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `homelab.core` — an Ansible **collection** of roles (no modules, no plugins) for
 building a self-hosted homelab on Proxmox LXCs, plus one reusable Terraform
 module. Targets are Debian-family/systemd; installs are native (tarball/source +
-systemd unit), not containers.
+systemd unit), not containers. The one exception is `project_nomad`, which runs
+Docker because NOMAD's admin starts its content apps as containers — don't
+treat it as precedent for containerising anything that can run natively.
 
 The collection is **site-agnostic**: no inventory or group_vars ship here, and
 no role default encodes a real address, domain, or credential. Consumers supply
