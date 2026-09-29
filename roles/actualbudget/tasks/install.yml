@@ -1,0 +1,59 @@
+---
+# build-essential and python3 are node-gyp's toolchain. better-sqlite3, bcrypt
+# and argon2 normally fetch prebuilt binaries, but fall back to compiling from
+# source when no prebuild matches the Node ABI — without these the npm install
+# then fails deep inside a gyp log.
+- name: Install OS dependencies
+  ansible.builtin.apt:
+    name:
+      - curl
+      - build-essential
+      - python3
+    state: present
+    update_cache: true
+
+# The setup script writes a deb822 nodesource.sources (older versions wrote
+# nodesource.list, which never appears now and made this rerun every time).
+- name: Add NodeSource Node.js repository  # noqa: command-instead-of-module
+  ansible.builtin.shell:
+    cmd: set -o pipefail; curl -fsSL https://deb.nodesource.com/setup_{{ actualbudget_nodejs_major }}.x | bash -
+  args:
+    executable: /bin/bash
+    creates: /etc/apt/sources.list.d/nodesource.sources
+
+- name: Install Node.js
+  ansible.builtin.apt:
+    name: nodejs
+    state: present
+    update_cache: true
+
+- name: Create actualbudget system user
+  ansible.builtin.user:
+    name: "{{ actualbudget_user }}"
+    system: true
+    create_home: false
+    shell: /usr/sbin/nologin
+
+- name: Create versioned install directory
+  ansible.builtin.file:
+    path: "{{ actualbudget_install_dir }}"
+    state: directory
+    mode: "0755"
+
+# Installed as root into a root-owned tree, so the service user can run the
+# code but not rewrite it. production: skip devDependencies.
+- name: Install the Actual sync server
+  community.general.npm:
+    name: "@actual-app/sync-server"
+    version: "{{ actualbudget_version }}"
+    path: "{{ actualbudget_install_dir }}"
+    production: true
+  notify: Restart actualbudget
+
+- name: Symlink actual-server into /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ actualbudget_install_dir }}/node_modules/.bin/actual-server"
+    dest: /usr/local/bin/actual-server
+    state: link
+    force: true
+  notify: Restart actualbudget

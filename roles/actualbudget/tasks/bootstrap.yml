@@ -1,0 +1,22 @@
+---
+# A fresh server has no password, and until one is set ANYONE who reaches the
+# UI can claim it — so set it at deploy time rather than leaving that window
+# open. Create-only: once bootstrapped, the probe reports it and nothing below
+# runs, so a password changed in the UI is never overwritten.
+- name: Probe whether the server password has been set
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ actualbudget_port }}/account/needs-bootstrap"
+  register: actualbudget_bootstrap_probe
+
+# /account/bootstrap is rate-limited (5 attempts per 15 minutes), so a run that
+# fails here repeatedly will start getting 429s — wait it out.
+- name: Set the server password
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ actualbudget_port }}/account/bootstrap"
+    method: POST
+    body_format: json
+    body:
+      password: "{{ actualbudget_server_password }}"
+  changed_when: true
+  when: not actualbudget_bootstrap_probe.json.data.bootstrapped
+  no_log: true

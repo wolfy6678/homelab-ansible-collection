@@ -1,0 +1,77 @@
+---
+# The steps that need a session: bank sync secrets, and switching OpenID back
+# off. Both log in with the server password, which /account/login accepts even
+# while OpenID is the active (or enforced) method. Nothing here runs — and the
+# password is never checked — unless one of them has work to do.
+
+- name: Probe the active login method
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ actualbudget_port }}/account/needs-bootstrap"
+  register: actualbudget_login_probe
+
+- name: Log in and reconcile over the API
+  when: >-
+    actualbudget_bank_sync_secrets | length > 0
+    or (not actualbudget_openid_enabled
+        and actualbudget_login_probe.json.data.loginMethod == 'openid')
+  block:
+    - name: Log in with the server password
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ actualbudget_port }}/account/login"
+        method: POST
+        body_format: json
+        body:
+          loginMethod: password
+          password: "{{ actualbudget_server_password }}"
+        status_code: [200, 400]
+      register: actualbudget_login
+      no_log: true
+
+    - name: Check the login succeeded
+      ansible.builtin.assert:
+        that: actualbudget_login.json.data.token is defined
+        fail_msg: >-
+          Could not log in to Actual with actualbudget_server_password
+          ({{ actualbudget_login.json.reason | default('unknown error') }}).
+          If the password was changed in the UI, update the vault to match.
+        quiet: true
+
+    - name: Check which bank sync secrets already exist
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ actualbudget_port }}/secret/{{ item }}"
+        headers:
+          x-actual-token: "{{ actualbudget_login.json.data.token }}"
+        status_code: [204, 404]
+      loop: "{{ actualbudget_bank_sync_secrets.keys() | list }}"
+      register: actualbudget_secret_probe
+      no_log: true
+
+    - name: Set missing bank sync secrets
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ actualbudget_port }}/secret"
+        method: POST
+        headers:
+          x-actual-token: "{{ actualbudget_login.json.data.token }}"
+        body_format: json
+        body:
+          name: "{{ item.item }}"
+          value: "{{ actualbudget_bank_sync_secrets[item.item] }}"
+      loop: "{{ actualbudget_secret_probe.results | selectattr('status', '==', 404) | list }}"
+      changed_when: true
+      no_log: true
+
+    # Last, because it deletes every session — including the one above.
+    - name: Switch the login method back to password
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ actualbudget_port }}/openid/disable"
+        method: POST
+        headers:
+          x-actual-token: "{{ actualbudget_login.json.data.token }}"
+        body_format: json
+        body:
+          password: "{{ actualbudget_server_password }}"
+      changed_when: true
+      when: >-
+        not actualbudget_openid_enabled
+        and actualbudget_login_probe.json.data.loginMethod == 'openid'
+      no_log: true

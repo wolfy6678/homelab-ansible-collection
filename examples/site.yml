@@ -50,6 +50,9 @@
 - name: Install and start OtterWiki
   import_playbook: playbooks/otterwiki.yml
 
+- name: Install and start Actual Budget
+  import_playbook: playbooks/actualbudget.yml
+
 - name: Install and start Headscale
   import_playbook: playbooks/headscale.yml
 

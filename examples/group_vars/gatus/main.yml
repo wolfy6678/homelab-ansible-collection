@@ -26,6 +26,8 @@ gatus_endpoints:
     url: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096/health"
   - name: otterwiki
     url: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}/-/healthz"
+  - name: actualbudget
+    url: "http://{{ hostvars[groups['actualbudget'][0]].ansible_host }}:5006/health"
   - name: grafana
     url: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000/api/health"
   - name: prometheus

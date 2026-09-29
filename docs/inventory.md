@@ -29,6 +29,7 @@ simply produces a Prometheus config with no headscale job.
 | `mosquitto` | MQTT broker (often co-located on the Home Assistant host) | `mosquitto` |
 | `jellyfin` | Media server | `jellyfin` |
 | `otterwiki` | Wiki | `otterwiki` |
+| `actualbudget` | Actual Budget. Needs a `caddy_sites` entry — the UI only loads over HTTPS | `actualbudget` |
 | `project_nomad` | Project NOMAD offline knowledge server. Needs `keyctl: true` in `lxc_overrides` | `project_nomad` |
 | `opnsense` | The firewall. **Not** under `lxc` — it is an existing appliance, and the role talks to its API from localhost | `opnsense` |
 | `backup` | Hosts whose application data restic backs up. Not a container of its own | `backup` |
@@ -113,7 +114,7 @@ these, just run and read the error. They are the credentials and site
 identifiers: `grafana_admin_password`, `caddy_dns_api_token`,
 `headscale_server_url`, `backup_restic_repository`, `backup_restic_password`,
 `jellyfin_admin_password`, `otterwiki_admin_password`, `otterwiki_secret_key`,
-`mosquitto_password`, `project_nomad_app_key`,
+`mosquitto_password`, `actualbudget_server_password`, `project_nomad_app_key`,
 `project_nomad_db_password`/`_db_root_password`, `opnsense_api_key`/`_secret`,
 `prometheus_pve_token_id`/`_secret`, `proxmox_backup_storage`,
 `monitoring_trmnl_webhook_uuid`, and the Home Assistant integration

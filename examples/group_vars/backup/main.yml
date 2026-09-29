@@ -33,6 +33,8 @@ backup_default_paths:
     - /var/lib/otterwiki
   jellyfin:
     - /var/lib/jellyfin
+  budget:
+    - /var/lib/actualbudget
 
 # Daily at 03:00 with a 30-minute random spread, keeping 7 daily / 4 weekly /
 # 6 monthly snapshots. Override backup_schedule, backup_random_delay and

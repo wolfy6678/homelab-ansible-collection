@@ -1,0 +1,51 @@
+---
+# server-files/ and user-files/ are created here rather than left to Actual: a
+# server that starts with OpenID configured bootstraps it before creating
+# them, and then fails every request with "Cannot open database because the
+# directory does not exist".
+- name: Create data directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ actualbudget_user }}"
+    group: "{{ actualbudget_user }}"
+    mode: "0750"
+  loop:
+    - "{{ actualbudget_data_dir }}"
+    - "{{ actualbudget_data_dir }}/server-files"
+    - "{{ actualbudget_data_dir }}/user-files"
+
+- name: Create config directory
+  ansible.builtin.file:
+    path: /etc/actualbudget
+    state: directory
+    mode: "0755"
+
+- name: Template systemd service unit
+  ansible.builtin.template:
+    src: actualbudget.service.j2
+    dest: /etc/systemd/system/actualbudget.service
+    mode: "0644"
+  notify: Restart actualbudget
+
+- name: Enable and start actualbudget service
+  ansible.builtin.systemd_service:
+    name: actualbudget
+    state: started
+    enabled: true
+    daemon_reload: true
+
+# Flush now rather than at the end of the play: a version bump or config change
+# must be live before the bootstrap probe talks to the server. The restart
+# handler waits for /health itself.
+- name: Apply pending restarts
+  ansible.builtin.meta: flush_handlers
+
+# For the run where nothing restarted but the service was only just started.
+- name: Wait until Actual is up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ actualbudget_port }}/health"
+  register: actualbudget_health
+  until: actualbudget_health.status == 200
+  retries: 30
+  delay: 2

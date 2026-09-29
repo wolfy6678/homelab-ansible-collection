@@ -1,0 +1,22 @@
+---
+# Actual Budget install: Node.js and the pinned sync server into a versioned
+# dir, then the systemd service, then the one-time server password bootstrap,
+# then OpenID, then everything that goes through the authenticated API. The
+# order is load-bearing: the password must exist before OpenID is switched on
+# (a server that starts with OpenID configured bootstraps straight to it and
+# never gets a password), and the API steps log in with that password.
+
+- name: Install Node.js and the Actual sync server
+  ansible.builtin.import_tasks: install.yml
+
+- name: Configure and start the Actual service
+  ansible.builtin.import_tasks: service.yml
+
+- name: Set the server password on first run
+  ansible.builtin.import_tasks: bootstrap.yml
+
+- name: Configure OpenID login
+  ansible.builtin.import_tasks: openid.yml
+
+- name: Reconcile bank sync secrets and the login method over the API
+  ansible.builtin.import_tasks: api.yml

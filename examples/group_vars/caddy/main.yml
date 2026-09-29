@@ -42,6 +42,9 @@ caddy_sites:
     upstream: "{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
   - name: wiki
     upstream: "{{ hostvars[groups['otterwiki'][0]].ansible_host }}:80"
+  # Not optional for Actual: its web UI only loads over HTTPS.
+  - name: budget
+    upstream: "{{ hostvars[groups['actualbudget'][0]].ansible_host }}:5006"
 
   # One hostname serving two apps, split by sub-path. Each app is configured to
   # serve from its own prefix (grafana_root_url, prometheus_external_url in

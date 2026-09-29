@@ -1,0 +1,30 @@
+[Unit]
+Description=Actual Budget sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ actualbudget_user }}
+Group={{ actualbudget_user }}
+WorkingDirectory={{ actualbudget_data_dir }}
+Environment=NODE_ENV=production
+Environment=ACTUAL_DATA_DIR={{ actualbudget_data_dir }}
+Environment=ACTUAL_SERVER_FILES={{ actualbudget_data_dir }}/server-files
+Environment=ACTUAL_USER_FILES={{ actualbudget_data_dir }}/user-files
+Environment=ACTUAL_PORT={{ actualbudget_port }}
+Environment=ACTUAL_HOSTNAME={{ actualbudget_hostname }}
+Environment=ACTUAL_UPLOAD_FILE_SYNC_SIZE_LIMIT_MB={{ actualbudget_upload_file_sync_size_limit_mb }}
+Environment=ACTUAL_UPLOAD_SYNC_ENCRYPTED_FILE_SYNC_SIZE_LIMIT_MB={{ actualbudget_upload_sync_encrypted_file_sync_size_limit_mb }}
+Environment=ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB={{ actualbudget_upload_file_size_limit_mb }}
+{% if actualbudget_trusted_proxies %}
+Environment=ACTUAL_TRUSTED_PROXIES={{ actualbudget_trusted_proxies | join(',') }}
+{% endif %}
+# OpenID settings, when enabled. Optional (-): absent means password login.
+EnvironmentFile=-/etc/actualbudget/openid.env
+ExecStart=/usr/local/bin/actual-server
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

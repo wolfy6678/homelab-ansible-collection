@@ -12,7 +12,7 @@
     - name: Load the role defaults that reach across groups
       ansible.builtin.include_vars:
         file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
-      loop: [alloy, opnsense, gatus, prometheus, homepage]
+      loop: [alloy, opnsense, gatus, prometheus, homepage, actualbudget]
 
     - name: Every cross-group default renders empty rather than erroring
       ansible.builtin.assert:
@@ -27,6 +27,7 @@
           - prometheus_proxmox_node_target == ''
           - prometheus_pve_target == ''
           - homepage_caddy_domain == ''
+          - actualbudget_caddy_domain == ''
         fail_msg: >-
           A default that reads another group did not degrade on an inventory
           without it. Unguarded, these raise "'list object' has no attribute 0"
@@ -110,7 +111,7 @@
     - name: Load the same role defaults again
       ansible.builtin.include_vars:
         file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
-      loop: [alloy, opnsense, gatus, prometheus]
+      loop: [alloy, opnsense, gatus, prometheus, actualbudget]
 
     - name: Each default now derives from the inventory
       ansible.builtin.assert:
@@ -124,6 +125,7 @@
           - prometheus_pve_target == 'pve.example.lan'
           - prometheus_gatus_port | int == 8080
           - prometheus_headscale_metrics_port | int == 9090
+          - actualbudget_openid_server_hostname == 'https://budget.example.com'
         fail_msg: >-
           A derived default did not track the inventory. These are the values
           one role reads out of another host's group_vars, which is why they

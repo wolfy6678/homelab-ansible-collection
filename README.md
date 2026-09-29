@@ -115,6 +115,7 @@ rather than half-configuring a host.
 | [`mosquitto`](roles/mosquitto) | Mosquitto MQTT broker |
 | [`jellyfin`](roles/jellyfin) | Jellyfin media server, including automated first-run wizard and library reconciliation |
 | [`otterwiki`](roles/otterwiki) | OtterWiki, a git-backed markdown wiki, with optional push mirroring to GitHub |
+| [`actualbudget`](roles/actualbudget) | Actual Budget sync server and web UI, with the server password set once on first run |
 | [`project_nomad`](roles/project_nomad) | Project NOMAD offline knowledge server (Wikipedia, books, maps, local AI) — the one role that runs Docker, because NOMAD's admin starts its apps as containers |
 | [`backup`](roles/backup) | restic file-level backups on a systemd timer, with Prometheus metrics |
 

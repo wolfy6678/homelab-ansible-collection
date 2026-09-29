@@ -1,0 +1,28 @@
+---
+# Actual reads the ACTUAL_OPENID_* variables at startup and, when they are
+# present, (re)bootstraps OpenID and makes it the active login method. The unit
+# loads them from this file with EnvironmentFile=-, so the file's presence is
+# the switch. Root-only: it carries the client secret, and Environment= lines
+# in the unit itself would be readable by anyone via `systemctl show`.
+- name: Write the OpenID environment file
+  ansible.builtin.template:
+    src: openid.env.j2
+    dest: /etc/actualbudget/openid.env
+    owner: root
+    group: root
+    mode: "0600"
+  when: actualbudget_openid_enabled
+  notify: Restart actualbudget
+  no_log: true
+
+# Removing the file only stops OpenID being re-bootstrapped on start; the
+# method stays active in the account db until api.yml calls /openid/disable.
+- name: Remove the OpenID environment file
+  ansible.builtin.file:
+    path: /etc/actualbudget/openid.env
+    state: absent
+  when: not actualbudget_openid_enabled
+  notify: Restart actualbudget
+
+- name: Apply the OpenID change
+  ansible.builtin.meta: flush_handlers

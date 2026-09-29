@@ -1,0 +1,33 @@
+---
+# Actual Budget sync server. See roles/actualbudget/README.md.
+#
+# The web UI only loads over HTTPS (it needs SharedArrayBuffer), so reach it
+# through the `budget` entry in group_vars/caddy, not the bare IP.
+
+# Set once on first run through Actual's bootstrap API and never modified, so
+# changing it in the UI later is safe.
+#   ansible-vault encrypt_string --vault-id homelab@prompt '<password>' \
+#     --name 'actualbudget_server_password'
+# actualbudget_server_password: !vault |
+#   ...
+
+# Optional SSO. The first user to log in through OpenID becomes the server
+# owner permanently, so log in yourself straight after enabling it. Register
+# https://budget.example.com/openid/callback as the redirect URI (the hostname
+# is derived from caddy_base_domain). Switching this back off later deletes
+# every OpenID user — see roles/actualbudget/README.md.
+# actualbudget_openid_enabled: true
+# actualbudget_openid_discovery_url: https://auth.example.com/application/o/actual/
+# actualbudget_openid_client_id: actual
+# actualbudget_openid_client_secret: !vault |
+#   ...
+# actualbudget_openid_enforce: true
+
+# Optional bank sync credentials, set once and never overwritten. Names are
+# Actual's own; SimpleFIN is linked in the UI instead.
+# actualbudget_bank_sync_secrets:
+#   gocardless_secretId: "{{ vault_actualbudget_gocardless_secret_id }}"
+#   gocardless_secretKey: "{{ vault_actualbudget_gocardless_secret_key }}"
+
+# Raise if a client reports a sync error on a large budget.
+# actualbudget_upload_file_sync_size_limit_mb: 50

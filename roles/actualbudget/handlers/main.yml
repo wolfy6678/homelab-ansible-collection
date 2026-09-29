@@ -1,0 +1,18 @@
+---
+- name: Restart actualbudget
+  ansible.builtin.systemd_service:
+    name: actualbudget
+    state: restarted
+    daemon_reload: true
+
+# Listens on the restart so every restart is followed by a wait: the tasks
+# after a flush_handlers talk to the API straight away, and node takes a few
+# seconds to run migrations and bind the port.
+- name: Wait until actualbudget is up
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ actualbudget_port }}/health"
+  register: actualbudget_health
+  until: actualbudget_health.status == 200
+  retries: 30
+  delay: 2
+  listen: Restart actualbudget
