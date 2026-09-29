@@ -7,6 +7,10 @@
 #   1. Stand up a restic-compatible destination: an SFTP or rest-server path on
 #      a NAS, or an off-site bucket (Backblaze B2, S3) — a bucket plus an
 #      application key is enough.
+#      With a `truenas` group in the inventory this is done for you: set
+#      truenas_backup_target_enabled and backup_restic_repository is derived as
+#      sftp:<truenas_backup_user>@<nas>:<truenas_backup_repo_path>, so the URL
+#      and the thing it points at cannot drift. See docs/truenas.md.
 #   2. Choose a strong repository password and KEEP A COPY OUTSIDE THE HOMELAB.
 #      Without it the backups cannot be recovered, by you or anyone.
 #   3. Vault-encrypt the password and any backend keys:
@@ -14,6 +18,8 @@
 #          --name 'backup_restic_password'
 #
 # backup_enabled: true
+# Only needed to override the derived value — an off-site bucket, or a NAS this
+# collection does not manage:
 # backup_restic_repository: sftp:backup@192.168.50.50:/srv/restic/homelab
 # backup_restic_password: !vault |
 #   ...

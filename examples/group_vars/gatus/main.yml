@@ -26,6 +26,11 @@ gatus_endpoints:
     url: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096/health"
   - name: otterwiki
     url: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}/-/healthz"
+  - name: truenas
+    # The NAS web UI. Plain HTTP against the stock self-signed certificate —
+    # switch to https:// once you have put a real certificate on it, which also
+    # makes the certificate-expiry conditions worth adding.
+    url: "http://{{ hostvars[groups['truenas'][0]].ansible_host }}"
   - name: grafana
     url: "http://{{ hostvars[groups['monitoring'][0]].ansible_host }}:3000/api/health"
   - name: prometheus

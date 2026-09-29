@@ -192,6 +192,7 @@ output. See `docs/terraform.md` for the contract in both directions.
 | `docs/terraform.md` | Root-module contract |
 | `docs/proxmox-node.md` | Manual PVE seed + what the role takes over |
 | `docs/opnsense.md` | Firewall bootstrap, metrics plugins, IDS log pipeline |
+| `docs/truenas.md` | NAS bootstrap, the midclt choice, shares/backup/metrics wiring |
 | `roles/<name>/README.md` | Per-role: purpose, requirements, required vars, example |
 | `roles/<name>/defaults/main.yml` | Every tunable, and *why* it is what it is |
 | `examples/` | A complete consumer repo, mirrored by the docs |

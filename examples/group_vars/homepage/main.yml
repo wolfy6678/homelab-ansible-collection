@@ -23,6 +23,8 @@ homepage_title: Homelab
 #   ...
 # vault_homepage_proxmox_token_secret: !vault |
 #   ...
+# vault_homepage_truenas_api_key: !vault |
+#   ...
 # vault_homepage_homeassistant_api_key: !vault |
 #   ...
 # vault_homepage_jellyfin_api_key: !vault |
@@ -55,6 +57,19 @@ homepage_services:
           url: https://pve.example.lan:8006
           username: "root@pam!homepage"
           password: "{{ vault_homepage_proxmox_token_secret }}"
+
+      - name: TrueNAS
+        icon: truenas.svg
+        href: "http://{{ hostvars[groups['truenas'][0]].ansible_host }}"
+        description: Storage, shares and backups
+        siteMonitor: "http://{{ hostvars[groups['truenas'][0]].ansible_host }}"
+        widget:
+          type: truenas
+          url: "http://{{ hostvars[groups['truenas'][0]].ansible_host }}"
+          # An API key from the top-bar Settings > API Keys. The widget wants
+          # the key as the password with no username; add `enablePools: true`
+          # for per-pool capacity.
+          key: "{{ vault_homepage_truenas_api_key }}"
 
       - name: Grafana
         icon: grafana.svg

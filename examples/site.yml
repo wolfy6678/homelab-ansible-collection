@@ -11,6 +11,12 @@
 - name: Reconcile OPNsense firewall resources
   import_playbook: playbooks/opnsense.yml
 
+# The NAS next: the media export has to exist before the Proxmox host can mount
+# it, and the restic target before the backup run at the end. A no-op until
+# truenas_manage_enabled, so this costs nothing if you have no NAS.
+- name: Configure the TrueNAS storage server
+  import_playbook: playbooks/truenas.yml
+
 # The hypervisor before the guests: this puts the apt repos and the container OS
 # template in place, so Terraform has a template to clone.
 - name: Configure the Proxmox VE host

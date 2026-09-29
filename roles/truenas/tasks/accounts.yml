@@ -1,0 +1,46 @@
+---
+# Groups and users, create-only. A password, key or shell changed in the web UI
+# has to survive the next site run — see the convention note in defaults.
+#
+# Both lists are pass-through: whatever keys they carry go to group.create /
+# user.create untouched, so the full account schema is available without
+# teaching this role about it.
+
+- name: Read the existing groups
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, group.query]
+  register: truenas_group_query
+  changed_when: false
+  check_mode: false
+  when: truenas_groups | length > 0
+
+- name: Create the missing groups
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, group.create, "{{ item | to_json }}"]
+  loop: "{{ truenas_groups }}"
+  loop_control:
+    label: "{{ item.name }}"
+  # group.query returns the name in both `name` and `group`; `name` is the one
+  # group.create also uses, so match on it and keep the two symmetrical.
+  when: item.name not in (truenas_group_query.stdout | default('[]') | from_json | map(attribute='name') | list)
+  changed_when: true
+
+- name: Read the existing users
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, user.query]
+  register: truenas_user_query
+  changed_when: false
+  check_mode: false
+  when: truenas_users | length > 0
+
+# no_log because a user entry may legitimately carry a `password`, and command
+# echoes its argv into the task result where nothing masks it.
+- name: Create the missing users
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, user.create, "{{ item | to_json }}"]
+  loop: "{{ truenas_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+  when: item.username not in (truenas_user_query.stdout | default('[]') | from_json | map(attribute='username') | list)
+  changed_when: true
+  no_log: true

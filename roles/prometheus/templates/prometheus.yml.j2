@@ -96,3 +96,19 @@ scrape_configs:
         labels:
           instance: opnsense
 {% endif %}
+{% if groups['truenas'] | default([]) and hostvars[groups['truenas'][0]].truenas_metrics_enabled | default(false) %}
+
+  # TrueNAS, via the Netdata app's OpenMetrics endpoint — TrueNAS has no
+  # Prometheus endpoint of its own (see docs/truenas.md). Declared on the NAS
+  # host in group_vars/truenas; undeclared means no job.
+  - job_name: truenas
+    metrics_path: {{ prometheus_truenas_metrics_path }}
+    params:
+{% for key, value in prometheus_truenas_metrics_params.items() %}
+      {{ key }}: {{ value | to_json }}
+{% endfor %}
+    static_configs:
+      - targets: ["{{ prometheus_truenas_target }}:{{ prometheus_truenas_metrics_port }}"]
+        labels:
+          instance: truenas
+{% endif %}

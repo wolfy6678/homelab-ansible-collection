@@ -1,0 +1,142 @@
+---
+# NFS and SMB exports, create-or-update. Drift is decided by comparing ONLY the
+# keys declared in the inventory — `current | combine(desired) != current` is
+# true exactly when some declared key disagrees — so options set in the UI that
+# the inventory says nothing about survive untouched.
+
+- name: Read the existing NFS exports
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, sharing.nfs.query]
+  register: truenas_nfs_query
+  changed_when: false
+  check_mode: false
+  when: truenas_nfs_shares | length > 0
+
+- name: Create the missing NFS exports
+  vars:
+    desired: "{{ item | combine({'path': '/mnt/' ~ truenas_pool ~ '/' ~ item.path}) }}"
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, sharing.nfs.create, "{{ desired | to_json }}"]
+  loop: "{{ truenas_nfs_shares }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.path }}"
+  when: desired.path
+        not in (truenas_nfs_query.stdout | default('[]') | from_json | map(attribute='path') | list)
+  changed_when: true
+
+- name: Update the NFS exports whose declared options have drifted
+  vars:
+    desired: "{{ item | combine({'path': '/mnt/' ~ truenas_pool ~ '/' ~ item.path}) }}"
+    current: >-
+      {{ (truenas_nfs_query.stdout | default('[]') | from_json
+          | selectattr('path', 'equalto', desired.path) | list | first) | default({}) }}
+  ansible.builtin.command:
+    argv:
+      - "{{ truenas_midclt }}"
+      - call
+      - sharing.nfs.update
+      - "{{ current.id | to_json }}"
+      - "{{ desired | to_json }}"
+  loop: "{{ truenas_nfs_shares }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.path }}"
+  when:
+    - current | length > 0
+    - (current | combine(desired)) != current
+  changed_when: true
+
+- name: Read the existing SMB shares
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, sharing.smb.query]
+  register: truenas_smb_query
+  changed_when: false
+  check_mode: false
+  when: truenas_smb_shares | length > 0
+
+- name: Create the missing SMB shares
+  vars:
+    desired: "{{ item | combine({'path': '/mnt/' ~ truenas_pool ~ '/' ~ item.path}) }}"
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, sharing.smb.create, "{{ desired | to_json }}"]
+  loop: "{{ truenas_smb_shares }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.path }}"
+  when: desired.path
+        not in (truenas_smb_query.stdout | default('[]') | from_json | map(attribute='path') | list)
+  changed_when: true
+
+- name: Update the SMB shares whose declared options have drifted
+  vars:
+    desired: "{{ item | combine({'path': '/mnt/' ~ truenas_pool ~ '/' ~ item.path}) }}"
+    current: >-
+      {{ (truenas_smb_query.stdout | default('[]') | from_json
+          | selectattr('path', 'equalto', desired.path) | list | first) | default({}) }}
+  ansible.builtin.command:
+    argv:
+      - "{{ truenas_midclt }}"
+      - call
+      - sharing.smb.update
+      - "{{ current.id | to_json }}"
+      - "{{ desired | to_json }}"
+  loop: "{{ truenas_smb_shares }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.path }}"
+  when:
+    - current | length > 0
+    - (current | combine(desired)) != current
+  changed_when: true
+
+# --- The services that actually serve the exports --------------------------
+# Gated on there being exports, so enabling a file server nobody asked for
+# never happens. The SMB service is called `cifs` in the middleware; NFS and
+# SSH keep their obvious names.
+- name: Read the service states
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, service.query]
+  register: truenas_service_query
+  changed_when: false
+  check_mode: false
+  when: truenas_manage_services | bool
+
+- name: Enable the sharing services at boot
+  ansible.builtin.command:
+    argv:
+      - "{{ truenas_midclt }}"
+      - call
+      - service.update
+      - "{{ item.service | to_json }}"
+      - '{"enable": true}'
+  loop: "{{ truenas_required_services }}"
+  loop_control:
+    label: "{{ item.service }}"
+  vars:
+    truenas_required_services: >-
+      {{ [{'service': 'nfs', 'wanted': truenas_nfs_shares | length > 0},
+          {'service': 'cifs', 'wanted': truenas_smb_shares | length > 0}]
+         | selectattr('wanted') | list }}
+    current: >-
+      {{ (truenas_service_query.stdout | default('[]') | from_json
+          | selectattr('service', 'equalto', item.service) | list | first) | default({}) }}
+  when:
+    - truenas_manage_services | bool
+    - not (current.enable | default(false))
+  changed_when: true
+
+- name: Start the sharing services
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, service.start, "{{ item.service | to_json }}"]
+  loop: "{{ truenas_required_services }}"
+  loop_control:
+    label: "{{ item.service }}"
+  vars:
+    truenas_required_services: >-
+      {{ [{'service': 'nfs', 'wanted': truenas_nfs_shares | length > 0},
+          {'service': 'cifs', 'wanted': truenas_smb_shares | length > 0}]
+         | selectattr('wanted') | list }}
+    current: >-
+      {{ (truenas_service_query.stdout | default('[]') | from_json
+          | selectattr('service', 'equalto', item.service) | list | first) | default({}) }}
+  when:
+    - truenas_manage_services | bool
+    - (current.state | default('STOPPED')) != 'RUNNING'
+  changed_when: true

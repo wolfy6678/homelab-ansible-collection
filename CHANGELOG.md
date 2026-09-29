@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A `truenas` role, for a baremetal TrueNAS storage server. Manages datasets,
+  NFS/SMB exports, service accounts, the restic backup target, and the
+  snapshot/scrub/S.M.A.R.T./alert schedules — a thin declarative slice, like
+  the `opnsense` role; the pool and everything else done at install time stay
+  in the installer. Driven through `midclt` over SSH rather than the REST API,
+  which is deprecated in 25.10 and slated for removal in TrueNAS 26; its
+  WebSocket replacement is not something a core Ansible module can speak.
+  Wires into three existing roles: `backup` derives its restic repository URL
+  from the NAS host, `prometheus` gains a `truenas` scrape job, and the NFS
+  export's allowed hosts are derived from the `proxmox` and `jellyfin` groups.
+  See `docs/truenas.md`.
 - Molecule tests, run in CI on every push. `contracts` asserts the inventory
   contract on the controller in seconds — guarded defaults collapsing to empty
   on an inventory without the group they read, deriving correctly when it is
@@ -21,6 +32,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The preflight assertions now reject a variable that is declared but left
   empty, not only one that is undefined. `node_exporter_textfile_dir: ""` used
   to pass `is defined` and fail later inside the role.
+- `backup_restic_repository` is derived from the `truenas` inventory group when
+  there is one, rather than always being hand-written. Setting it explicitly
+  still wins, and an inventory with no `truenas` group is unaffected — the
+  `undef()` hint now mentions both routes.
+- The `ansible-lint` CI job installs `community.docker`. Lint runs over the
+  whole repository, so it covers the molecule scenarios under `extensions/`,
+  which call `community.docker.docker_container`.
 
 ## [1.0.0] - 2026-09-05
 

@@ -1,0 +1,118 @@
+---
+# TrueNAS storage server. The role manages the datasets, exports and accounts
+# the rest of the homelab depends on — not the pool, the network or the apps.
+# See roles/truenas/README.md and docs/truenas.md.
+#
+# The play runs ON the NAS: midclt talks to the middleware over a root-owned
+# socket, so it has to be local, and the play needs become.
+
+# Master gate. Left false so a full site run never requires the NAS to be up.
+# Flip to true once TrueNAS is installed, the pool exists and SSH works.
+truenas_manage_enabled: false
+
+# The pool you created in the installer. No default — guessing "tank" would
+# silently target the wrong pool on a box that named it something else.
+truenas_pool: tank
+
+# --- Accounts ---------------------------------------------------------------
+# Created once and then left alone, so a password or key changed in the web UI
+# survives the next run. `group` on a user is the primary group's GID, not its
+# name.
+truenas_groups:
+  - name: media
+    gid: 3000
+
+truenas_users:
+  - username: media
+    full_name: Jellyfin media owner
+    uid: 3000
+    group: 3000
+    password_disabled: true
+    smb: false
+
+# --- Datasets ---------------------------------------------------------------
+# `name` is relative to truenas_pool, so this is tank/media at /mnt/tank/media.
+# Every other key except owner/group/mode goes to the middleware verbatim.
+# owner/group/mode are applied only when the dataset is first created.
+truenas_datasets:
+  - name: media
+    comments: Jellyfin libraries
+    owner: media
+    group: media
+    mode: "0775"
+
+# --- Exports ----------------------------------------------------------------
+# truenas_homelab_clients is derived from the inventory: the Proxmox host and
+# the Jellyfin container. The Proxmox host is in there because an unprivileged
+# LXC cannot mount NFS itself — PVE mounts the export and bind-mounts it in
+# (lxc_overrides.mountpoints in the inventory). See docs/truenas.md.
+#
+# `path` is relative to truenas_pool, like a dataset name. In 25.10 the field
+# is `path`, singular — older releases used a `paths` list.
+truenas_nfs_shares:
+  - path: media
+    comment: Jellyfin libraries
+    hosts: "{{ truenas_homelab_clients }}"
+    mapall_user: media
+    mapall_group: media
+
+# SMB is off here — nothing in the example homelab needs it. Same shape.
+truenas_smb_shares: []
+
+# --- restic backup target ---------------------------------------------------
+# Creates the dataset, the user and the repository directory the backup role's
+# sftp: URL points at. Off until you enable the backup role.
+# truenas_backup_target_enabled: true
+
+# Required HERE rather than as role defaults: the backup role reads both off
+# this host via hostvars to compose backup_restic_repository, and role defaults
+# are invisible in hostvars. The repo path must sit inside the backup dataset.
+truenas_backup_user: restic
+truenas_backup_repo_path: /mnt/tank/backup/homelab
+
+# The PUBLIC key the backup hosts authenticate with — the contents of their
+# id_ed25519.pub. Not a secret, but it is the only credential on the account,
+# so treat replacing it as a security event.
+# truenas_backup_ssh_key: "ssh-ed25519 AAAA... homelab-backup"
+
+# --- Maintenance ------------------------------------------------------------
+# Snapshots: create-only, matched on dataset + naming schema. Two weeks of
+# hourly snapshots of the media dataset is a starting point, not advice.
+truenas_snapshot_tasks:
+  - dataset: media
+    recursive: true
+    lifetime_value: 2
+    lifetime_unit: WEEK
+    naming_schema: auto-%Y%m%d-%H%M
+    schedule: {minute: "0", hour: "2", dom: "*", month: "*", dow: "*"}
+
+# Updates the scrub task TrueNAS already made for the pool rather than adding a
+# second one. Commented out = keep the stock schedule.
+# truenas_scrub_schedule: {minute: "0", hour: "3", dom: "*", month: "*", dow: "7"}
+
+# 25.10 removed built-in S.M.A.R.T. scheduling, so this creates a cron job
+# running smartctl over every disk. Install the Scrutiny app instead if you
+# want history and trending.
+# truenas_smart_test_enabled: true
+
+# --- Alerting ---------------------------------------------------------------
+# How TrueNAS tells you a disk is failing. The most valuable block on this page
+# and the one most often left unset.
+#   ansible-vault encrypt_string --vault-id homelab@prompt '<app password>' \
+#     --name 'truenas_mail_password'
+# truenas_mail_enabled: true
+# truenas_mail_from: nas@example.com
+# truenas_mail_server: smtp.example.com
+# truenas_mail_port: 587
+# truenas_mail_security: TLS
+# truenas_mail_user: nas@example.com
+# truenas_mail_password: !vault |
+#   ...
+
+# --- Metrics ----------------------------------------------------------------
+# TrueNAS ships no Prometheus endpoint: reporting is Netdata, and its
+# OpenMetrics output only exists once the Netdata app is installed. Undeclared
+# means off, so no scrape job appears until there is something to scrape.
+# Read by the prometheus role via hostvars — hence here, not in role defaults.
+# truenas_metrics_enabled: true
+# truenas_metrics_port: 20489

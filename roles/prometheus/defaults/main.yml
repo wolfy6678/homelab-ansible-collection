@@ -92,3 +92,23 @@ prometheus_opnsense_target: ""
 # group_vars/monitoring/main.yml), then set this to its host:port (default
 # Telegraf Prometheus output port 9273). Leave empty to skip.
 prometheus_opnsense_telegraf_target: ""
+
+# TrueNAS scrape target, derived from the `truenas` inventory group. The port
+# is read off the NAS host (single source, no mirrored default to drift), and
+# the whole job is gated on that host declaring truenas_metrics_enabled —
+# undeclared means off, the same way headscale_fail2ban_enabled works above.
+#
+# TrueNAS ships no Prometheus endpoint of its own: reporting is Netdata, whose
+# OpenMetrics output only exists once the Netdata app is installed. Hence the
+# unusual path/params pair — the endpoint is /api/v1/allmetrics with
+# ?format=prometheus, and a query string is not allowed in metrics_path, so it
+# has to go through `params`. See docs/truenas.md.
+prometheus_truenas_metrics_port: "{{ hostvars[groups['truenas'][0]].truenas_metrics_port }}"
+prometheus_truenas_metrics_path: /api/v1/allmetrics
+prometheus_truenas_metrics_params:
+  format: [prometheus]
+# The NAS is baremetal and addressed like the Proxmox host, so fall back to the
+# inventory name when it carries no ansible_host.
+prometheus_truenas_target: >-
+  {{ (hostvars[groups['truenas'][0]].ansible_host | default(groups['truenas'][0]))
+     if (groups['truenas'] | default([])) else '' }}

@@ -1,0 +1,55 @@
+---
+# Preflight: the variables another role reads off this host cannot be role
+# defaults (defaults are invisible in hostvars), so a missing one would surface
+# as an undefined-variable error inside the backup role on a different host,
+# long after this run finished. Fail here instead, naming the variable and the
+# file. Only the features actually switched on are checked.
+- name: Assert the inventory-declared TrueNAS variables are set
+  ansible.builtin.assert:
+    that:
+      - not (truenas_backup_target_enabled | bool)
+        or (truenas_backup_user | default('') | length > 0
+            and truenas_backup_repo_path | default('') | length > 0)
+    fail_msg: >-
+      truenas_backup_target_enabled is on, so the backup role derives
+      backup_restic_repository from this host — but truenas_backup_user and/or
+      truenas_backup_repo_path are unset. Both must be set in
+      group_vars/truenas/main.yml (not in the role defaults: role defaults are
+      invisible in hostvars, so the backup role would see nothing). See
+      docs/inventory.md.
+    quiet: true
+  when: truenas_manage_enabled | bool
+
+# Everything is gated on truenas_manage_enabled so a full site run is a no-op
+# until the NAS is installed and reachable. While disabled nothing below is
+# evaluated, so the undef() truenas_pool / truenas_backup_ssh_key never fire.
+- name: Configure TrueNAS
+  when: truenas_manage_enabled | bool
+  block:
+    # A clear failure beats twenty confusing ones: without midclt this is not a
+    # TrueNAS box, or the play is not running as root.
+    - name: Assert midclt is available to this connection
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, system.ready]
+      register: truenas_ready
+      changed_when: false
+      check_mode: false
+      failed_when: truenas_ready.rc != 0
+
+    - name: Import the account tasks
+      ansible.builtin.import_tasks: accounts.yml
+
+    - name: Import the dataset tasks
+      ansible.builtin.import_tasks: datasets.yml
+
+    - name: Import the share tasks
+      ansible.builtin.import_tasks: shares.yml
+
+    - name: Import the backup target tasks
+      ansible.builtin.import_tasks: backup_target.yml
+
+    - name: Import the schedule tasks
+      ansible.builtin.import_tasks: schedules.yml
+
+    - name: Import the alerting tasks
+      ansible.builtin.import_tasks: alerts.yml

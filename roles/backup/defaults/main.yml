@@ -10,9 +10,24 @@ backup_enabled: false
 #   rest:https://user:pass@nas:8000/homelab          (rest-server)
 #   b2:my-bucket:homelab                             (Backblaze B2, off-site)
 #   s3:s3.amazonaws.com/my-bucket/homelab            (S3-compatible)
+#
+# Derived from the `truenas` inventory group when there is one: the NAS host
+# declares truenas_backup_user and truenas_backup_repo_path (in group_vars, not
+# role defaults — defaults are invisible in hostvars), the truenas role creates
+# exactly that user and directory, and this composes the sftp: URL from them so
+# the two halves cannot drift. Set backup_restic_repository explicitly to use
+# anything else — an off-site bucket, or a NAS this collection does not manage.
 backup_restic_repository: >-
-  {{ undef(hint='Set backup_restic_repository to a restic repo URL, e.g.
-  sftp:backup@nas:/srv/restic/homelab or b2:bucket:homelab') }}
+  {{ ('sftp:' ~ hostvars[groups['truenas'][0]].truenas_backup_user ~ '@'
+      ~ (hostvars[groups['truenas'][0]].ansible_host | default(groups['truenas'][0]))
+      ~ ':' ~ hostvars[groups['truenas'][0]].truenas_backup_repo_path)
+     if ((groups['truenas'] | default([]))
+         and (hostvars[groups['truenas'][0]].truenas_backup_user | default(''))
+         and (hostvars[groups['truenas'][0]].truenas_backup_repo_path | default('')))
+     else undef(hint='Set backup_restic_repository to a restic repo URL, e.g.
+     sftp:backup@nas:/srv/restic/homelab or b2:bucket:homelab — or add a
+     `truenas` group declaring truenas_backup_user and
+     truenas_backup_repo_path and it will be derived from that') }}
 # Encryption password for the repo. Vault-encrypt it. Losing this = losing the
 # backups, so store a copy somewhere safe outside the homelab.
 backup_restic_password: >-

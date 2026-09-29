@@ -1,0 +1,14 @@
+---
+# Reconcile the TrueNAS storage resources the homelab depends on: datasets,
+# NFS/SMB exports, service accounts, the restic backup target, and the
+# snapshot/scrub/alert schedules. A no-op until truenas_manage_enabled is true.
+#
+# Unlike the opnsense playbook this one runs ON the NAS. midclt talks to the
+# middleware over a root-owned socket, so it has to be local and it has to be
+# root — TrueNAS disables root SSH login, so connect as the administrative
+# account (ansible_user in the inventory) and sudo. See docs/truenas.md.
+- name: Configure the TrueNAS storage server
+  hosts: truenas
+  become: true
+  roles:
+    - homelab.core.truenas

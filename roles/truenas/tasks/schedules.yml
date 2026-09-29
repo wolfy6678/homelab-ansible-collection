@@ -1,0 +1,103 @@
+---
+# Periodic snapshots, the pool scrub, and the S.M.A.R.T. test that 25.10 no
+# longer schedules for you.
+
+- name: Read the existing snapshot tasks
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, pool.snapshottask.query]
+  register: truenas_snapshottask_query
+  changed_when: false
+  check_mode: false
+  when: truenas_snapshot_tasks | length > 0
+
+# Create-only, matched on dataset + naming_schema (the pair the middleware
+# treats as the task's identity). Rewriting a live retention policy from
+# Ansible would silently start expiring snapshots someone still wanted.
+- name: Create the missing snapshot tasks
+  vars:
+    desired: "{{ item | combine({'dataset': truenas_pool ~ '/' ~ item.dataset}) }}"
+    existing: >-
+      {{ truenas_snapshottask_query.stdout | default('[]') | from_json
+         | selectattr('dataset', 'equalto', desired.dataset)
+         | selectattr('naming_schema', 'equalto', desired.naming_schema) | list }}
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, pool.snapshottask.create, "{{ desired | to_json }}"]
+  loop: "{{ truenas_snapshot_tasks }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.dataset }} ({{ item.naming_schema }})"
+  when: existing | length == 0
+  changed_when: true
+
+# --- Scrub -----------------------------------------------------------------
+# TrueNAS already created one scrub task per pool, so this updates that task
+# rather than adding a second — two scrubs on one pool only contend for the
+# same disks. Skipped entirely when truenas_scrub_schedule is empty, which
+# leaves the stock schedule alone.
+- name: Read the existing scrub tasks
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, pool.scrub.query]
+  register: truenas_scrub_query
+  changed_when: false
+  check_mode: false
+  when: truenas_scrub_schedule | length > 0
+
+- name: Update the pool scrub schedule
+  vars:
+    desired:
+      schedule: "{{ truenas_scrub_schedule }}"
+      threshold: "{{ truenas_scrub_threshold }}"
+      enabled: true
+    current: >-
+      {{ (truenas_scrub_query.stdout | default('[]') | from_json
+          | selectattr('pool_name', 'equalto', truenas_pool) | list | first) | default({}) }}
+  ansible.builtin.command:
+    argv:
+      - "{{ truenas_midclt }}"
+      - call
+      - pool.scrub.update
+      - "{{ current.id | to_json }}"
+      - "{{ desired | to_json }}"
+  when:
+    - truenas_scrub_schedule | length > 0
+    - current | length > 0
+    - (current | combine(desired)) != current
+  changed_when: true
+
+# --- S.M.A.R.T. ------------------------------------------------------------
+# 25.10 removed built-in S.M.A.R.T. test scheduling and migrated existing tasks
+# to cron, so a cron task is what this creates too. smartmontools is still
+# shipped for exactly this. Matched on the description, so it is created once
+# and then left alone — edit the schedule in Tasks > Cron Jobs, or delete the
+# job and re-run.
+- name: Read the existing cron jobs
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, cronjob.query]
+  register: truenas_cronjob_query
+  changed_when: false
+  check_mode: false
+  when: truenas_smart_test_enabled | bool
+
+- name: Schedule the S.M.A.R.T. test
+  vars:
+    truenas_smart_description: "{{ truenas_smart_test_type }} S.M.A.R.T. test (managed by Ansible)"
+    desired:
+      description: "{{ truenas_smart_description }}"
+      # Every physical disk, resolved at run time so a replaced or added drive
+      # is covered without another Ansible run.
+      command: >-
+        for d in $(lsblk -dn -o NAME,TYPE | awk '$2 == "disk" { print $1 }'); do
+        smartctl -t {{ truenas_smart_test_type }} /dev/$d; done
+      user: root
+      schedule: "{{ truenas_smart_test_schedule }}"
+      enabled: true
+      # The tests run asynchronously on the drive; the mail would only ever say
+      # "test started", so it is noise.
+      stdout: true
+      stderr: true
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, cronjob.create, "{{ desired | to_json }}"]
+  when:
+    - truenas_smart_test_enabled | bool
+    - truenas_smart_description
+      not in (truenas_cronjob_query.stdout | default('[]') | from_json | map(attribute='description') | list)
+  changed_when: true

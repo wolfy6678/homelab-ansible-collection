@@ -1,0 +1,52 @@
+---
+# Datasets, create-only. `name` is relative to truenas_pool and every other key
+# except the three permission ones is passed through to pool.dataset.create
+# verbatim.
+
+- name: Read the existing datasets
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, pool.dataset.query]
+  register: truenas_dataset_query
+  changed_when: false
+  check_mode: false
+  when: truenas_datasets | length > 0
+
+- name: Create the missing datasets
+  ansible.builtin.command:
+    argv:
+      - "{{ truenas_midclt }}"
+      - call
+      - pool.dataset.create
+      # owner/group/mode are ours, not the middleware's — strip them before
+      # handing the rest of the entry over untouched.
+      - >-
+        {{ {'name': truenas_pool ~ '/' ~ item.name}
+           | combine(item | dict2items
+                     | rejectattr('key', 'in', ['name', 'owner', 'group', 'mode'])
+                     | items2dict) | to_json }}
+  loop: "{{ truenas_datasets }}"
+  loop_control:
+    label: "{{ truenas_pool }}/{{ item.name }}"
+  when: (truenas_pool ~ '/' ~ item.name)
+        not in (truenas_dataset_query.stdout | default('[]') | from_json | map(attribute='id') | list)
+  register: truenas_dataset_created
+  changed_when: true
+
+# Ownership is applied ONLY to datasets this run created. A live dataset's
+# permissions are left alone even if this list disagrees with them: changing
+# them under a running service should be a deliberate act. `file` rather than
+# filesystem.setperm because the dataset is already mounted and setperm wants
+# numeric uid/gid, which would mean resolving names here for no gain.
+- name: Set ownership on the datasets this run created
+  ansible.builtin.file:
+    path: "/mnt/{{ truenas_pool }}/{{ item.item.name }}"
+    state: directory
+    owner: "{{ item.item.owner | default(omit) }}"
+    group: "{{ item.item.group | default(omit) }}"
+    mode: "{{ item.item.mode | default(omit) }}"
+  loop: "{{ truenas_dataset_created.results | default([]) }}"
+  loop_control:
+    label: "/mnt/{{ truenas_pool }}/{{ item.item.name }}"
+  when:
+    - item is changed
+    - (item.item.owner is defined) or (item.item.group is defined) or (item.item.mode is defined)

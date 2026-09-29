@@ -1,0 +1,116 @@
+---
+# The destination the backup role's `sftp:` repository points at: a dataset, an
+# unprivileged user whose only credential is an SSH key, and the repo directory
+# itself. Gated — it is only useful once the backup role is enabled.
+#
+# restic over SFTP is a plain SSH login, so this is deliberately minimal: no
+# password, no SMB, nothing but the key.
+
+- name: Configure the restic backup target
+  when: truenas_backup_target_enabled | bool
+  vars:
+    truenas_backup_dataset_path: "/mnt/{{ truenas_pool }}/{{ truenas_backup_dataset }}"
+  block:
+    # A repo path outside the dataset would still "work" — and quietly write
+    # the backups onto the parent dataset, where the snapshot policy and quota
+    # do not apply. Catch it here rather than discovering it at restore time.
+    - name: Assert the repository path lives inside the backup dataset
+      ansible.builtin.assert:
+        that:
+          - truenas_backup_repo_path is match(truenas_backup_dataset_path ~ '(/|$)')
+        fail_msg: >-
+          truenas_backup_repo_path ({{ truenas_backup_repo_path }}) must be
+          inside {{ truenas_backup_dataset_path }}, the dataset this role
+          creates for it. Either move the path under that dataset or point
+          truenas_backup_dataset at the one you meant.
+        quiet: true
+
+    - name: Read the existing datasets
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, pool.dataset.query]
+      register: truenas_backup_dataset_query
+      changed_when: false
+      check_mode: false
+
+    - name: Create the backup dataset
+      ansible.builtin.command:
+        argv:
+          - "{{ truenas_midclt }}"
+          - call
+          - pool.dataset.create
+          - >-
+            {{ {'name': truenas_pool ~ '/' ~ truenas_backup_dataset,
+                'comments': 'restic repositories (managed by Ansible)'} | to_json }}
+      when: (truenas_pool ~ '/' ~ truenas_backup_dataset)
+            not in (truenas_backup_dataset_query.stdout | from_json | map(attribute='id') | list)
+      changed_when: true
+
+    - name: Read the existing users
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, user.query]
+      register: truenas_backup_user_query
+      changed_when: false
+      check_mode: false
+
+    # Create-only: a key rotated in the UI must not be reverted by a site run.
+    # no_log because the payload carries the account's credentials and `command`
+    # echoes its argv straight into the task result.
+    - name: Create the backup user
+      ansible.builtin.command:
+        argv:
+          - "{{ truenas_midclt }}"
+          - call
+          - user.create
+          - >-
+            {{ {'username': truenas_backup_user,
+                'full_name': 'restic backup target (managed by Ansible)',
+                'group_create': true,
+                'home': truenas_backup_dataset_path,
+                'password_disabled': true,
+                'smb': false,
+                'shell': '/usr/bin/bash',
+                'sshpubkey': truenas_backup_ssh_key}
+               | combine(truenas_backup_user_extra) | to_json }}
+      when: truenas_backup_user
+            not in (truenas_backup_user_query.stdout | from_json | map(attribute='username') | list)
+      changed_when: true
+      no_log: true
+
+    # restic creates its own repository layout on `restic init`; all it needs is
+    # a directory it owns.
+    - name: Create the repository directory
+      ansible.builtin.file:
+        path: "{{ truenas_backup_repo_path }}"
+        state: directory
+        owner: "{{ truenas_backup_user }}"
+        group: "{{ truenas_backup_user }}"
+        mode: "0700"
+
+    - name: Read the service states
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, service.query]
+      register: truenas_backup_service_query
+      changed_when: false
+      check_mode: false
+
+    # SFTP is the SSH service. Without this the repository exists and nothing
+    # can reach it.
+    - name: Enable SSH at boot
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, service.update, '"ssh"', '{"enable": true}']
+      vars:
+        current: >-
+          {{ (truenas_backup_service_query.stdout | from_json
+              | selectattr('service', 'equalto', 'ssh') | list | first) | default({}) }}
+      when: not (current.enable | default(false))
+      changed_when: true
+
+    - name: Start SSH
+      ansible.builtin.command:
+        argv: ["{{ truenas_midclt }}", call, service.start, '"ssh"']
+      vars:
+        current: >-
+          {{ (truenas_backup_service_query.stdout | from_json
+              | selectattr('service', 'equalto', 'ssh') | list | first) | default({}) }}
+      when: (current.state | default('STOPPED')) != 'RUNNING'
+      changed_when: true

@@ -1,0 +1,44 @@
+---
+# Mail is how TrueNAS tells you a disk is failing. Unlike everything else in
+# this role it is a singleton config, so there is no "already exists" to
+# respect and it is reconciled on every run — the drift comparison keeps that
+# from reporting changed each time.
+
+- name: Read the mail configuration
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, mail.config]
+  register: truenas_mail_query
+  changed_when: false
+  check_mode: false
+  when: truenas_mail_enabled | bool
+
+# no_log: the payload carries the SMTP password, and `command` echoes its argv
+# into the task result where nothing masks it (same reason as
+# roles/proxmox/tasks/main.yml).
+- name: Configure outgoing mail
+  vars:
+    desired: >-
+      {{ {'fromemail': truenas_mail_from,
+          'outgoingserver': truenas_mail_server,
+          'port': truenas_mail_port,
+          'security': truenas_mail_security,
+          'smtp': truenas_mail_smtp_auth,
+          'user': truenas_mail_user,
+          'pass': truenas_mail_password}
+         if truenas_mail_smtp_auth | bool else
+         {'fromemail': truenas_mail_from,
+          'outgoingserver': truenas_mail_server,
+          'port': truenas_mail_port,
+          'security': truenas_mail_security,
+          'smtp': false} }}
+    current: "{{ truenas_mail_query.stdout | default('{}') | from_json }}"
+  ansible.builtin.command:
+    argv: ["{{ truenas_midclt }}", call, mail.update, "{{ desired | to_json }}"]
+  when:
+    - truenas_mail_enabled | bool
+    # `pass` is never returned by mail.config, so a configured password would
+    # otherwise make this report changed on every run. Compare everything else.
+    - (current | combine(desired | dict2items | rejectattr('key', 'equalto', 'pass') | items2dict))
+      != current
+  changed_when: true
+  no_log: true

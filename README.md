@@ -74,6 +74,7 @@ rather than half-configuring a host.
 | [Terraform](docs/terraform.md) | The root module you supply, and the contract it must meet |
 | [The Proxmox host](docs/proxmox-node.md) | The manual seed, and what `proxmox_node` takes over |
 | [OPNsense](docs/opnsense.md) | Firewall bootstrap, metrics plugins, IDS log visualisation |
+| [TrueNAS](docs/truenas.md) | NAS bootstrap, shares, the backup target and metrics |
 | [`examples/`](examples/) | A complete consumer repository: inventory, group_vars, playbooks, Terraform |
 
 ## Roles
@@ -86,6 +87,7 @@ rather than half-configuring a host.
 | [`proxmox`](roles/proxmox) | Builds a Terraform `lxcs` map from the `lxc` inventory group, applies it, and starts the containers |
 | [`unattended_upgrades`](roles/unattended_upgrades) | Automatic security patching on every host |
 | [`opnsense`](roles/opnsense) | Reconciles OPNsense firewall resources over the API: Unbound DNS overrides, optional scrape rules |
+| [`truenas`](roles/truenas) | Reconciles TrueNAS storage over `midclt`: datasets, NFS/SMB exports, accounts, the restic backup target, snapshot/scrub/alert schedules |
 
 ### Networking and access
 

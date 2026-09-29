@@ -78,6 +78,7 @@ The ones you cannot skip:
 | `group_vars/gatus/main.yml` | `gatus_port` |
 | `group_vars/monitoring/main.yml` | `grafana_admin_password` |
 | `group_vars/headscale/main.yml` | the public URL and the four monitoring variables — only if you deploy headscale |
+| `group_vars/truenas/main.yml` | the pool name, and the backup/metrics variables — only if you have a TrueNAS box |
 
 Vault-encrypt every secret as you go:
 
@@ -165,5 +166,6 @@ than a broken dashboard: check Prometheus's target list first.
 - [docs/terraform.md](terraform.md) — provisioning
 - [docs/proxmox-node.md](proxmox-node.md) — the PVE host seed
 - [docs/opnsense.md](opnsense.md) — firewall, metrics and IDS log visualisation
+- [docs/truenas.md](truenas.md) — NAS bootstrap, shares, the backup target and metrics
 - `roles/<name>/README.md` — per-role documentation
 - `roles/<name>/defaults/main.yml` — every tunable, with the reasoning

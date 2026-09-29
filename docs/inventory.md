@@ -30,6 +30,7 @@ simply produces a Prometheus config with no headscale job.
 | `jellyfin` | Media server | `jellyfin` |
 | `otterwiki` | Wiki | `otterwiki` |
 | `opnsense` | The firewall. **Not** under `lxc` — it is an existing appliance, and the role talks to its API from localhost | `opnsense` |
+| `truenas` | The NAS. **Not** under `lxc` — baremetal, and the role runs on it over SSH | `truenas`, `backup` (restic repository), `prometheus` (scrape target) |
 | `backup` | Hosts whose application data restic backs up. Not a container of its own | `backup` |
 
 A group may hold a host that another group also holds — co-location is normal
@@ -79,6 +80,10 @@ instruction rather than an undefined-variable error mid-run.
 | `headscale_fail2ban_enabled` | `group_vars/headscale` | `true` | `headscale`, `prometheus` |
 | `headscale_fail2ban_exporter_enabled` | `group_vars/headscale` | `true` | `headscale`, `prometheus` |
 | `headscale_fail2ban_exporter_port` | `group_vars/headscale` | `9191` | `headscale`, `prometheus` |
+| `truenas_backup_user` | `group_vars/truenas` | `restic` | `truenas`, `backup` |
+| `truenas_backup_repo_path` | `group_vars/truenas` | `/mnt/tank/backup/homelab` | `truenas`, `backup` |
+| `truenas_metrics_enabled` | `group_vars/truenas` | `true` | `prometheus` |
+| `truenas_metrics_port` | `group_vars/truenas` | `20489` | `prometheus` |
 | `terraform_proxmox_*` (7 variables) | `group_vars/proxmox` | see [docs/terraform.md](terraform.md) | `proxmox` |
 
 `caddy_sites` is the single source of the clean hostnames. The `gatus` role

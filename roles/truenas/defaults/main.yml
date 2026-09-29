@@ -1,0 +1,233 @@
+---
+# truenas role — reconciles the storage resources the rest of the homelab
+# depends on on a baremetal TrueNAS box: datasets, their NFS/SMB exports, the
+# accounts that reach them, the restic backup target, and the periodic
+# snapshot / scrub / alerting plumbing.
+#
+# Deliberately a thin, declarative slice, the same bargain the opnsense role
+# strikes. Pool and vdev layout, disk replacement, apps, certificates, the
+# network config and the installer-time setup are NOT managed here: they are
+# one-time, hardware-specific, and destructive to get wrong. See
+# docs/truenas.md for the full division of responsibility and the bootstrap
+# runbook.
+#
+# Everything is driven through `midclt`, the local CLI onto the TrueNAS
+# middleware, over SSH. That choice is deliberate and worth recording: the
+# REST API is deprecated as of 25.10 (it raises an alert when hit) and is
+# slated for removal in TrueNAS 26, and its replacement is JSON-RPC 2.0 over a
+# WebSocket, which no core Ansible module speaks. midclt reaches the same
+# middleware from the box itself, so it is unaffected by that transition and
+# needs no extra collection dependency.
+
+# Master gate — overridden to true in group_vars/truenas/main.yml once the box
+# is installed, the pool exists and SSH works. While false the whole role is a
+# no-op, so a full site run never requires the NAS to be reachable (same
+# pattern as opnsense_manage_enabled / backup_enabled / mosquitto_enabled).
+truenas_manage_enabled: false
+
+# midclt talks to the middleware over a root-owned UNIX socket, so every task
+# here needs become. It is on PATH in every SCALE release; overridable only in
+# case a future image moves it.
+truenas_midclt: midclt
+
+# The ZFS pool everything below is created under. No safe default: the pool is
+# created in the installer (see docs/truenas.md), and guessing "tank" would
+# silently target the wrong pool on a box that named it something else.
+truenas_pool: >-
+  {{ undef(hint='Set truenas_pool to the ZFS pool you created in the TrueNAS
+  installer, e.g. tank, in group_vars/truenas/main.yml') }}
+
+# --- Datasets --------------------------------------------------------------
+# EMPTY BY DEFAULT. Which datasets a site needs is site-specific, so the
+# collection ships none — the same bargain as homepage_services, gatus_endpoints
+# and backup_default_paths.
+#
+# Every key except `name`, `owner`, `group` and `mode` is passed through to
+# pool.dataset.create verbatim, so any property the middleware accepts works
+# with no role change. `name` is relative to truenas_pool, so `- name: media`
+# creates <pool>/media and mounts it at /mnt/<pool>/media.
+#
+#   truenas_datasets:
+#     - name: media
+#       comments: Jellyfin libraries
+#       owner: media
+#       group: media
+#       mode: "0775"
+#     - name: backup
+#       comments: restic repositories
+#
+# CREATE-ONLY, per the convention for anything a human also edits in a web UI
+# (Jellyfin's wizard, OtterWiki's admin, the Proxmox backup jobs). An existing
+# dataset is left exactly as it is, and owner/group/mode are applied only to
+# datasets this run actually created — changing a live dataset's permissions
+# out from under a running service should be a deliberate act, not a side
+# effect of a site run. Change them in the UI, or destroy and recreate.
+truenas_datasets: []
+
+# --- NFS and SMB exports ---------------------------------------------------
+# Also empty by default, also pass-through: every key goes to
+# sharing.nfs.create / sharing.smb.create untouched except `path`, which is
+# relative to truenas_pool exactly like a dataset name.
+#
+#   truenas_nfs_shares:
+#     - path: media
+#       comment: Jellyfin libraries
+#       hosts: "{{ truenas_homelab_clients }}"
+#       mapall_user: media
+#       mapall_group: media
+#
+# NB: in 25.10 the field is `path` (singular). Older releases and some
+# third-party collections use a `paths` list; that shape is rejected now.
+#
+# Unlike datasets these are create-OR-update: a share's allowed hosts and
+# export options are exactly the kind of thing that should track the inventory,
+# and rewriting them cannot lose data. Drift is detected by comparing only the
+# keys declared here, so options set in the UI that this list says nothing
+# about are preserved.
+truenas_nfs_shares: []
+truenas_smb_shares: []
+
+# The homelab hosts that mount the exports, derived from the inventory so
+# adding a host does not mean mirroring its address here. Guarded, so an
+# inventory with neither group renders an empty list rather than erroring.
+#
+# The Proxmox host is in the list because an unprivileged LXC cannot mount NFS
+# itself: the PVE host mounts the export and bind-mounts it into the container
+# (this is the other half of jellyfin_media_dir — see roles/jellyfin). That
+# host is conventionally addressed by name with no ansible_host, and NFS
+# accepts a hostname, so fall back to the inventory name.
+truenas_proxmox_client: >-
+  {{ (hostvars[groups['proxmox'][0]].ansible_host | default(groups['proxmox'][0]))
+     if (groups['proxmox'] | default([])) else '' }}
+truenas_jellyfin_client: >-
+  {{ hostvars[groups['jellyfin'][0]].ansible_host
+     if (groups['jellyfin'] | default([])) else '' }}
+truenas_homelab_clients: >-
+  {{ [truenas_proxmox_client, truenas_jellyfin_client] | reject('equalto', '') | list }}
+
+# Enable and start the NFS/SMB services once there are exports to serve. Each
+# is gated on the matching share list being non-empty, so enabling a file
+# server nobody asked for never happens.
+truenas_manage_services: true
+
+# --- Accounts --------------------------------------------------------------
+# Pass-through lists again: every key goes to group.create / user.create
+# verbatim, so the whole account schema is available without a role change.
+#
+#   truenas_groups:
+#     - name: media
+#       gid: 3000
+#   truenas_users:
+#     - username: media
+#       full_name: Jellyfin media owner
+#       uid: 3000
+#       group: 3000            # gid of the primary group, not its name
+#       password_disabled: true
+#       smb: false
+#
+# CREATE-ONLY, and emphatically so: a password or SSH key changed in the web UI
+# must not be reverted by a site run, and rewriting a uid/gid on a live system
+# is how you lose access to your own data. Matched on `username` / `name`.
+truenas_groups: []
+truenas_users: []
+
+# --- restic backup target --------------------------------------------------
+# Creates the destination the backup role's sftp: repository points at: a
+# dataset, a dedicated unprivileged user, and that user's authorized key. Off
+# by default because it is only useful once the backup role is enabled.
+#
+# truenas_backup_user and truenas_backup_repo_path are NOT declared here on
+# purpose. The backup role reads them off this host via hostvars to derive
+# backup_restic_repository, and role defaults are invisible in hostvars — so
+# they must live in group_vars/truenas/main.yml. The preflight assert in
+# tasks/main.yml says exactly that when they are missing. See docs/inventory.md.
+truenas_backup_target_enabled: false
+
+# Dataset (relative to truenas_pool) that holds the restic repositories, so the
+# backups get their own snapshot and quota boundary rather than sharing one
+# with the media. truenas_backup_repo_path must live inside it — the role
+# asserts that, because a repo path pointing somewhere else would silently
+# create the dataset and then write the backups outside it.
+truenas_backup_dataset: backup
+
+# Extra keys merged into the user.create payload, for anything the default
+# shape below does not cover (a fixed uid, a different shell). The defaults are
+# a passwordless, non-SMB account whose only credential is the SSH key.
+truenas_backup_user_extra: {}
+
+# Public half of the SSH key the backup hosts authenticate with. restic over
+# SFTP is a plain SSH login, so this is the whole authentication story — the
+# private half lives on the hosts in the `backup` group.
+truenas_backup_ssh_key: >-
+  {{ undef(hint='Set truenas_backup_ssh_key to the PUBLIC ssh key the backup
+  hosts use (the contents of their id_ed25519.pub) in
+  group_vars/truenas/main.yml') }}
+
+# --- Periodic snapshots ----------------------------------------------------
+# Pass-through to pool.snapshottask.create, with `dataset` relative to
+# truenas_pool. Empty by default; a snapshot schedule is a retention policy,
+# and picking one for someone else's data is not the collection's business.
+#
+#   truenas_snapshot_tasks:
+#     - dataset: media
+#       recursive: true
+#       lifetime_value: 2
+#       lifetime_unit: WEEK
+#       naming_schema: auto-%Y%m%d-%H%M
+#       schedule: {minute: "0", hour: "2", dom: "*", month: "*", dow: "*"}
+#
+# Create-only, matched on dataset + naming_schema: editing a live retention
+# policy from Ansible would silently start expiring snapshots you still wanted.
+truenas_snapshot_tasks: []
+
+# --- Scrubs ----------------------------------------------------------------
+# TrueNAS creates one scrub task per pool automatically, so this UPDATES the
+# existing task rather than adding a second one — two scrubs on one pool would
+# just contend for the same disks. Empty means "leave the stock schedule
+# alone", which is a perfectly good answer.
+#
+#   truenas_scrub_schedule: {minute: "0", hour: "3", dom: "*", month: "*", dow: "7"}
+truenas_scrub_schedule: {}
+# Days since the last scrub before the task will run again. The stock value.
+truenas_scrub_threshold: 35
+
+# --- S.M.A.R.T. tests ------------------------------------------------------
+# 25.10 REMOVED built-in S.M.A.R.T. test scheduling; on upgrade existing tasks
+# were migrated to cron, and the API method that remains (disk.smart_test) is
+# documented as unsupported. So this schedules a cron job running the same
+# smartctl the removed feature did — smartmontools is still shipped precisely
+# for that. Off by default; install the Scrutiny app instead if you want
+# history and trending rather than a daily short test.
+truenas_smart_test_enabled: false
+truenas_smart_test_type: short
+truenas_smart_test_schedule: {minute: "0", hour: "1", dom: "*", month: "*", dow: "*"}
+
+# --- Alerting --------------------------------------------------------------
+# Mail is how TrueNAS tells you a disk is failing, which makes it the most
+# valuable thing on this page and the one most often left unset. Off by default
+# because it needs credentials.
+#
+# This is a singleton config (mail.update), so unlike everything else here it
+# is reconciled on every run — there is no "already exists" to respect.
+truenas_mail_enabled: false
+truenas_mail_from: ""
+truenas_mail_server: ""
+truenas_mail_port: 587
+truenas_mail_security: TLS
+truenas_mail_smtp_auth: true
+truenas_mail_user: ""
+truenas_mail_password: ""
+
+# --- Prometheus ------------------------------------------------------------
+# truenas_metrics_enabled / truenas_metrics_port are NOT declared here, for the
+# same reason as the backup variables above: only the prometheus role reads
+# them, it reads them off this host via hostvars, and role defaults are
+# invisible in hostvars. Declaring them here would give false confidence — the
+# scrape job would silently never appear. They live in
+# group_vars/truenas/main.yml; see docs/inventory.md.
+#
+# Worth knowing before you set them: TrueNAS ships NO Prometheus endpoint of
+# its own. Reporting is Netdata, and its OpenMetrics endpoint is only reachable
+# once the Netdata app is installed (port 20489). Undeclared means off, so the
+# scrape job appears only when there is actually something to scrape. See
+# docs/truenas.md.

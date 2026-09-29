@@ -12,7 +12,7 @@
     - name: Load the role defaults that reach across groups
       ansible.builtin.include_vars:
         file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
-      loop: [alloy, opnsense, gatus, prometheus, homepage]
+      loop: [alloy, opnsense, gatus, prometheus, homepage, truenas]
 
     - name: Every cross-group default renders empty rather than erroring
       ansible.builtin.assert:
@@ -27,6 +27,10 @@
           - prometheus_proxmox_node_target == ''
           - prometheus_pve_target == ''
           - homepage_caddy_domain == ''
+          - truenas_proxmox_client == ''
+          - truenas_jellyfin_client == ''
+          - truenas_homelab_clients == []
+          - prometheus_truenas_target == ''
         fail_msg: >-
           A default that reads another group did not degrade on an inventory
           without it. Unguarded, these raise "'list object' has no attribute 0"
@@ -95,6 +99,25 @@
         headscale_fail2ban_exporter_enabled: true
         headscale_fail2ban_exporter_port: 9191
 
+    - name: Add a jellyfin host, one of the two NFS clients
+      ansible.builtin.add_host:
+        name: jellyfin.example.lan
+        groups: [jellyfin, lxc]
+        ansible_host: 192.168.50.103
+
+    # Baremetal, so no ansible_host on the proxmox side and none of the lxc
+    # groups. The four variables here are the ones that cannot be role
+    # defaults: the backup and prometheus roles read them off this host.
+    - name: Add a truenas host declaring what other roles read
+      ansible.builtin.add_host:
+        name: nas.example.lan
+        groups: [truenas]
+        ansible_host: 192.168.50.10
+        truenas_backup_user: restic
+        truenas_backup_repo_path: /mnt/tank/backup/homelab
+        truenas_metrics_enabled: true
+        truenas_metrics_port: 20489
+
     - name: Add the Proxmox host
       ansible.builtin.add_host:
         name: pve.example.lan
@@ -110,7 +133,7 @@
     - name: Load the same role defaults again
       ansible.builtin.include_vars:
         file: "{{ root }}/roles/{{ item }}/defaults/main.yml"
-      loop: [alloy, opnsense, gatus, prometheus]
+      loop: [alloy, opnsense, gatus, prometheus, truenas, backup]
 
     - name: Each default now derives from the inventory
       ansible.builtin.assert:
@@ -124,6 +147,14 @@
           - prometheus_pve_target == 'pve.example.lan'
           - prometheus_gatus_port | int == 8080
           - prometheus_headscale_metrics_port | int == 9090
+          # The NFS export's allowed hosts: the Proxmox host by name (it has an
+          # ansible_host here, so the address wins) and the Jellyfin container.
+          - truenas_homelab_clients == ['192.168.50.2', '192.168.50.103']
+          - prometheus_truenas_target == '192.168.50.10'
+          - prometheus_truenas_metrics_port | int == 20489
+          # The restic URL and the target the truenas role creates are composed
+          # from the same two variables, so they cannot drift apart.
+          - backup_restic_repository == 'sftp:restic@192.168.50.10:/mnt/tank/backup/homelab'
         fail_msg: >-
           A derived default did not track the inventory. These are the values
           one role reads out of another host's group_vars, which is why they
@@ -152,6 +183,7 @@
           - "'gatus' in jobs"
           - "'headscale' in jobs"
           - "'fail2ban' in jobs"
+          - "'truenas' in jobs"
         fail_msg: "expected jobs missing from the rendered config — got {{ jobs }}"
         quiet: true
 
@@ -233,6 +265,35 @@
           ansible.builtin.assert:
             that:
               - "'node_exporter_textfile_dir' in ansible_failed_result.msg"
+              - "'group_vars' in ansible_failed_result.msg"
+            fail_msg: >-
+              The role failed, but not with a usable message. Got:
+              {{ ansible_failed_result.msg | default('(no message)') }}
+            quiet: true
+
+    - name: The truenas role refuses to build a backup target it cannot name
+      block:
+        - name: Run the role with the cross-host variables left blank
+          ansible.builtin.include_role:
+            name: homelab.core.truenas
+          vars:
+            truenas_manage_enabled: true
+            truenas_backup_target_enabled: true
+            truenas_backup_user: ""
+            truenas_backup_repo_path: ""
+        - name: The role should not have got this far
+          ansible.builtin.fail:
+            msg: >-
+              truenas ran with truenas_backup_user and truenas_backup_repo_path
+              unset. Those cannot be role defaults — the backup role reads them
+              via hostvars to compose backup_restic_repository — so a missing
+              one has to fail here, not inside the backup role on another host.
+      rescue:
+        - name: The failure names the variables and where to set them
+          ansible.builtin.assert:
+            that:
+              - "'truenas_backup_user' in ansible_failed_result.msg"
+              - "'truenas_backup_repo_path' in ansible_failed_result.msg"
               - "'group_vars' in ansible_failed_result.msg"
             fail_msg: >-
               The role failed, but not with a usable message. Got:
