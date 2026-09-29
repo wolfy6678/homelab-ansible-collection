@@ -60,15 +60,65 @@ All three fail with a hint if unset; vault-encrypt them:
   container runtime for Ollama. GPU passthrough into an LXC is a Proxmox-side
   job this role doesn't attempt; without it the AI assistant runs on CPU.
 
+## Configuration as code
+
+After the stack is up the role drives the admin's HTTP API — the same calls
+the first-run setup wizard makes — from five variables. All ship empty, so an
+unconfigured host gets exactly upstream's out-of-the-box NOMAD.
+
+| Variable | Semantics |
+| --- | --- |
+| `project_nomad_settings` | Admin settings, `key: value`. **Reconciled** — a declared key is set back every run, so it stops being editable in the UI. Undeclared keys are left alone. |
+| `project_nomad_apps` | Apps to install, by NOMAD service name. **Create-only** — missing ones are installed and waited for; nothing is ever uninstalled. |
+| `project_nomad_wikipedia` | Wikipedia edition: `none`, `top-mini`, `top-nopic`, `all-mini`, `all-nopic`, `all-maxi`. |
+| `project_nomad_content_tiers` | Curated ZIM collections, `category: tier`. Cumulative and **grow-only**. |
+| `project_nomad_map_collections` | Curated offline map collections, by slug (upstream's are US regions). |
+
+```yaml
+project_nomad_settings:
+  ui.hasVisitedEasySetup: true   # skip the setup wizard; this file is the setup
+  contentAutoUpdate.enabled: true
+project_nomad_apps:
+  - nomad_kiwix_server           # the Information Library — serves every ZIM
+  - nomad_kolibri
+  - nomad_cyberchef
+project_nomad_wikipedia: all-nopic
+project_nomad_content_tiers:
+  medicine: medicine-standard
+  survival: survival-essential
+```
+
+App names: `nomad_kiwix_server`, `nomad_kolibri`, `nomad_cyberchef`,
+`nomad_flatnotes`, `nomad_stirling_pdf`, `nomad_filebrowser`,
+`nomad_calibreweb`, `nomad_it_tools`, `nomad_excalidraw`,
+`nomad_meshtastic_web`, `nomad_meshtasticd`, `nomad_meshcore_web`,
+`nomad_homebox`, `nomad_vaultwarden`, `nomad_jellyfin` — and `nomad_ollama`,
+the AI Assistant. Content categories are `medicine`, `survival`, `education`,
+`diy`, `agriculture` and `computing`, each with `<category>-essential`,
+`-standard` and `-comprehensive` tiers. Unknown names, tiers, collections and
+setting keys fail the run with the valid choices; declaring ZIM content without
+`nomad_kiwix_server` fails too, since nothing else serves it.
+
+Downloads are **started, not waited for** — a full Wikipedia takes hours. Watch
+them in the UI. The admin keys each job on its URL, so a re-run mid-download
+neither restarts nor duplicates anything. A file that keeps failing there is
+usually a stale entry in upstream's catalogue (a ZIM the Kiwix mirror has
+since replaced), not this role.
+
+Why the split between reconciled and create-only: settings are a handful of
+values with one right answer, but apps and content are also added from the
+UI, and a run that uninstalled what someone installed by hand — or deleted a
+100 GB download — would be worse than drift. Remove things from the UI, which
+keeps the admin's records consistent.
+
 ## The AI Assistant is off
 
-NOMAD's AI Assistant (Ollama, plus the Qdrant vector database it depends on)
-is **not installed** by this role, and NOMAD never installs it on its own: it
-is seeded as not installed, the first-run setup wizard leaves it unticked, and
-it only appears if someone installs it from the UI. NOMAD has no setting to
-hide or disable it, so the role doesn't pretend to manage it — if you'd rather
-nobody can, restrict who reaches the Command Center. Removing it again is
-done from the UI too, which keeps the admin's records consistent.
+The AI Assistant (Ollama, plus the Qdrant vector database it depends on) is
+installed only if `project_nomad_apps` lists `nomad_ollama`. NOMAD never
+installs it on its own either: it is seeded as not installed and the setup
+wizard leaves it unticked. NOMAD has no setting to hide or disable it, though,
+so anyone who reaches the Command Center can still install it from the UI — if
+that matters, restrict who reaches it.
 
 ## Ports
 

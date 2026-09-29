@@ -4,9 +4,9 @@
 # maps and optional local AI.
 #
 # The optional AI Assistant (Ollama + Qdrant) is off: NOMAD seeds it as not
-# installed, the setup wizard leaves it unticked, and only a UI install adds
-# it. There is no NOMAD setting to disable it outright, so there is no variable
-# for it here — it is managed from the UI, like every other content app.
+# installed, the setup wizard leaves it unticked, and this role installs it
+# only if project_nomad_apps lists nomad_ollama. NOMAD has no setting to
+# disable it outright, so a UI install is still possible.
 #
 # Unlike the rest of this collection this role is NOT a native install. NOMAD's
 # "Command Center" admin app installs every content service (Kiwix, Kolibri,
