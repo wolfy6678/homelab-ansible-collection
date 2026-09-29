@@ -1,0 +1,127 @@
+---
+# Project NOMAD (https://github.com/Crosstalk-Solutions/project-nomad) — an
+# offline knowledge server: Wikipedia and other ZIMs via Kiwix, books, courses,
+# maps and optional local AI.
+#
+# The optional AI Assistant (Ollama + Qdrant) is off: NOMAD seeds it as not
+# installed, the setup wizard leaves it unticked, and this role installs it
+# only if project_nomad_apps lists nomad_ollama. NOMAD has no setting to
+# disable it outright, so a UI install is still possible.
+#
+# Unlike the rest of this collection this role is NOT a native install. NOMAD's
+# "Command Center" admin app installs every content service (Kiwix, Kolibri,
+# Ollama, ...) by starting sibling containers through the Docker socket, so
+# there is no way to run it without Docker. The role therefore installs Docker
+# in the LXC and runs the management stack from upstream's compose file. The
+# LXC needs the `keyctl` feature for that (nesting is always on) — set
+# `lxc_overrides: {keyctl: true}` on the host in your inventory.
+
+# Admin image tag (ghcr.io/crosstalk-solutions/project-nomad:v<version>).
+# Upstream's compose file tracks :latest with pull_policy: always, so every
+# restart could silently upgrade and run the admin's database migrations; pin
+# instead, and upgrade by bumping this. Never step it DOWN — the migrations are
+# forward-only and an older admin against a newer schema will not start.
+project_nomad_version: 1.34.1
+
+# The disk-collector sidecar is versioned independently of the admin image.
+project_nomad_disk_collector_version: 1.31.1
+
+project_nomad_mysql_image: mysql:8.0
+project_nomad_redis_image: redis:7-alpine
+project_nomad_dozzle_image: amir20/dozzle:v10.0
+
+# Where the compose file and the MySQL/Redis data live. Upstream's helper and
+# updater scripts hard-code /opt/project-nomad, so keep it unless you have a
+# reason not to.
+project_nomad_dir: /opt/project-nomad
+
+# ALL content — ZIM archives, AI models, maps, uploads — lands under here, and
+# it gets large quickly (full English Wikipedia alone is ~100 GB). The admin
+# inspects its own mount at runtime and points every child container it starts
+# at this same host path, so this one variable relocates everything. To put it
+# on bigger storage, bind-mount a host directory in with
+# lxc_overrides.mountpoints and point this at the mount. Changing it on an
+# existing install does NOT move the data — stop NOMAD and move it first.
+project_nomad_storage_dir: "{{ project_nomad_dir }}/storage"
+
+# Host port for the Command Center. The admin always listens on 8080 inside its
+# container; only the published port changes.
+project_nomad_port: 8080
+
+# The URL you reach the Command Center at. The admin builds absolute links from
+# it, so if you front it with Caddy set this to the clean https:// hostname.
+project_nomad_url: "http://{{ ansible_host }}:{{ project_nomad_port }}"
+
+project_nomad_log_level: info
+
+# Dozzle is a container log viewer, linked from Settings → "Service Logs &
+# Metrics". It has no authentication, so anyone on the LAN can read every
+# NOMAD container's logs; its stop/restart actions and shell are disabled
+# (shell + the Docker socket would be root on the LXC). Upstream recommends
+# keeping it — set false to drop it and free the port.
+project_nomad_dozzle_enabled: true
+project_nomad_dozzle_port: 9999
+
+# Upstream also runs an "updater" sidecar that upgrades NOMAD from the web UI by
+# rewriting the admin image tag in compose.yml. This role deliberately leaves it
+# out: it owns compose.yml and pins project_nomad_version, so the next run
+# would revert a UI upgrade — i.e. downgrade the admin under an already
+# migrated database. Without the sidecar the UI reports system updates (and
+# the admin's own auto-update) as unavailable; upgrade by bumping
+# project_nomad_version instead. Content apps the admin installs (Kiwix,
+# Ollama, ...) still update from the UI — the admin recreates those itself.
+
+# Admin session/encryption key — at least 16 characters or the admin container
+# refuses to start. Changing it invalidates every session and anything the
+# admin has encrypted with it. Generate with:
+#   openssl rand -hex 32
+project_nomad_app_key: >-
+  {{ undef(hint='Set project_nomad_app_key to 16+ random characters, e.g. openssl rand -hex 32 (vault-encrypt it in group_vars/project_nomad/main.yml)') }}
+
+# MySQL credentials. MySQL applies these ONLY when it initialises an empty data
+# directory on first start; afterwards they are baked into the database. So
+# changing either here later does not change the password — it breaks the
+# admin's connection ("Access denied"). To rotate, change it inside MySQL first,
+# then here. Upstream's installer papers over this by deleting the database on
+# every install; this role never does.
+project_nomad_db_password: >-
+  {{ undef(hint='Set project_nomad_db_password to a random string (vault-encrypt it in group_vars/project_nomad/main.yml)') }}
+project_nomad_db_root_password: >-
+  {{ undef(hint='Set project_nomad_db_root_password to a random string (vault-encrypt it in group_vars/project_nomad/main.yml)') }}
+
+# --- Configuration --------------------------------------------------------------
+# Applied through the admin's HTTP API after the stack is up (tasks/
+# configure.yml) — the same calls the first-run setup wizard makes. Everything
+# ships empty: which apps and content you want is yours to declare. See the
+# README for the catalogue of names.
+
+# Admin settings (the KV store behind Settings), as key: value. RECONCILED: a
+# key declared here is set back on every run, so it stops being editable from
+# the UI; keys not declared are left alone. The admin rejects unknown keys.
+# Useful ones: ui.hasVisitedEasySetup (true skips the setup wizard — worth
+# setting when this role declares the content), ui.theme,
+# appAutoUpdate.enabled and contentAutoUpdate.* (the admin updating apps and
+# ZIMs itself, in a nightly window). autoUpdate.* is the admin's own upgrade,
+# which cannot work without the updater sidecar (see above).
+project_nomad_settings: {}
+
+# Apps to install, by NOMAD service name (nomad_kiwix_server, nomad_kolibri,
+# nomad_cyberchef, nomad_flatnotes, ...). CREATE-ONLY: missing apps are
+# installed and waited for; apps installed from the UI are never removed, and
+# dropping one from this list does not uninstall it. The AI Assistant is
+# nomad_ollama — leave it out to keep AI off.
+project_nomad_apps: []
+
+# Wikipedia edition: none, top-mini, top-nopic, all-mini, all-nopic or
+# all-maxi (full English Wikipedia with images, ~100 GB). Empty leaves the
+# selection to the UI. Changing it replaces the downloaded edition.
+project_nomad_wikipedia: ""
+
+# Curated ZIM collections, as category: tier — e.g. medicine:
+# medicine-standard. Tiers are cumulative (standard includes essential). Only
+# grows content: asking for a smaller tier than is installed does nothing.
+project_nomad_content_tiers: {}
+
+# Curated offline map collections, by slug. Upstream's catalogue is US regions
+# only (pacific, mountain, new-england, ...).
+project_nomad_map_collections: []

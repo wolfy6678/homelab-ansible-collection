@@ -1,0 +1,45 @@
+---
+# The containers run as root (the admin drives the Docker socket anyway, which
+# is root-equivalent on this LXC), so there is no service user to create.
+
+- name: Create NOMAD directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ project_nomad_dir }}"
+    - "{{ project_nomad_storage_dir }}"
+    - "{{ project_nomad_storage_dir }}/logs"
+
+# Holds the app key and both database passwords in clear, so root-only, and
+# kept out of --diff output.
+- name: Deploy the NOMAD compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ project_nomad_dir }}/compose.yml"
+    owner: root
+    group: root
+    mode: "0600"
+  diff: false
+
+# No restart handler: docker_compose_v2 compares every service against the
+# compose file on each run and recreates only the ones whose definition changed
+# (a bumped image tag, a new env value), which is what a handler would do.
+# remove_orphans drops a service switched off here (Dozzle); the containers the
+# admin starts carry their own project label (project-nomad-managed), so they
+# are never touched. The first start runs the admin's database migrations after
+# MySQL's first healthy check; wait blocks until every healthcheck passes,
+# the admin's included, hence the long timeout.
+- name: Start the NOMAD management stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ project_nomad_dir }}"
+    files:
+      - compose.yml
+    state: present
+    pull: missing
+    remove_orphans: true
+    wait: true
+    wait_timeout: 600

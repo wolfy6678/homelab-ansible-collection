@@ -1,0 +1,26 @@
+---
+# Project NOMAD: Docker Engine from Docker's apt repository, then NOMAD's
+# management stack (admin, MySQL, Redis, sidecars) from a templated compose
+# file. The admin starts the content containers itself, on demand from the UI.
+
+# Upstream publishes amd64 images only (arm64 is still an open PR), so on
+# anything else the pulls fail halfway and leave partial images behind.
+- name: Assert the host is x86_64
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['architecture'] == 'x86_64'
+    fail_msg: >-
+      Project NOMAD publishes x86_64 images only; this host is
+      {{ ansible_facts['architecture'] }}.
+    quiet: true
+
+- name: Install Docker Engine
+  ansible.builtin.import_tasks: docker.yml
+
+- name: Deploy and start the NOMAD management stack
+  ansible.builtin.import_tasks: service.yml
+
+- name: Configure NOMAD through its API
+  ansible.builtin.import_tasks: configure.yml
+  vars:
+    _project_nomad_api: "http://127.0.0.1:{{ project_nomad_port }}"

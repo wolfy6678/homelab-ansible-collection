@@ -26,7 +26,7 @@ it walks from a bare Proxmox host to a running homelab, and
 ## Installation
 
 ```bash
-ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.0.0
+ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.1.0
 ```
 
 Or pin it in a `requirements.yml`:
@@ -35,7 +35,7 @@ Or pin it in a `requirements.yml`:
 collections:
   - name: https://github.com/wolfy6678/homelab-ansible-collection.git
     type: git
-    version: v1.0.0
+    version: v1.1.0
 ```
 
 ```bash
@@ -115,6 +115,7 @@ rather than half-configuring a host.
 | [`mosquitto`](roles/mosquitto) | Mosquitto MQTT broker |
 | [`jellyfin`](roles/jellyfin) | Jellyfin media server, including automated first-run wizard and library reconciliation |
 | [`otterwiki`](roles/otterwiki) | OtterWiki, a git-backed markdown wiki, with optional push mirroring to GitHub |
+| [`project_nomad`](roles/project_nomad) | Project NOMAD offline knowledge server (Wikipedia, books, maps, local AI) — the one role that runs Docker, because NOMAD's admin starts its apps as containers |
 | [`backup`](roles/backup) | restic file-level backups on a systemd timer, with Prometheus metrics |
 
 ## Terraform LXC module
@@ -125,7 +126,7 @@ straight from git:
 
 ```hcl
 module "lxc" {
-  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.0.0"
+  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.1.0"
   for_each = var.lxcs
 
   hostname        = each.key

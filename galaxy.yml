@@ -1,7 +1,7 @@
 ---
 namespace: homelab
 name: core
-version: 1.0.0
+version: 1.1.0
 readme: README.md
 
 authors:
@@ -38,6 +38,9 @@ dependencies:
   # OPNsense API). Version schema tracks OPNsense releases, so pin to the line
   # matching your firewall's version (25.7.x = OPNsense 25.7).
   oxlorg.opnsense: ">=25.7.0,<26.0.0"
+  # community.docker.docker_compose_v2 (project_nomad role — NOMAD's
+  # management stack)
+  community.docker: ">=5.0.0,<6.0.0"
 
 repository: https://github.com/wolfy6678/homelab-ansible-collection
 documentation: https://github.com/wolfy6678/homelab-ansible-collection#readme

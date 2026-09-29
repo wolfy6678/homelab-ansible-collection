@@ -53,6 +53,9 @@
 - name: Install and start Headscale
   import_playbook: playbooks/headscale.yml
 
+- name: Install and start Project NOMAD
+  import_playbook: playbooks/project-nomad.yml
+
 # Caddy after the services it proxies, so every upstream is already answering
 # when the first certificate is issued and the first request arrives.
 - name: Install and start the Caddy reverse proxy
