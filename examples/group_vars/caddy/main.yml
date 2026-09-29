@@ -42,6 +42,15 @@ caddy_sites:
     upstream: "{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"
   - name: wiki
     upstream: "{{ hostvars[groups['otterwiki'][0]].ansible_host }}:80"
+  # Project NOMAD: the Command Center, plus one site per content app it
+  # publishes on its own port. NOMAD's "Open" buttons are pointed at these by
+  # project_nomad_app_urls in group_vars/project_nomad.
+  - name: nomad
+    upstream: "{{ hostvars[groups['project_nomad'][0]].ansible_host }}:8080"
+  - name: kiwix
+    upstream: "{{ hostvars[groups['project_nomad'][0]].ansible_host }}:8090"
+  - name: cyberchef
+    upstream: "{{ hostvars[groups['project_nomad'][0]].ansible_host }}:8100"
   # Not optional for Actual: its web UI only loads over HTTPS.
   - name: budget
     upstream: "{{ hostvars[groups['actualbudget'][0]].ansible_host }}:5006"

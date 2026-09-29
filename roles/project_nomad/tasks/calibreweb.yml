@@ -1,0 +1,144 @@
+---
+# Calibre-Web (linuxserver image) boots unconfigured: the well-known login
+# admin / admin123, and no library path, so every page redirects to the
+# "Database configuration" screen. NOMAD has no hook for either, so this works
+# on the container's own settings db, /config/app.db, inside the container
+# NOMAD named after the service. Both writes run as the container's `abc`
+# user so the db and its journal keep their ownership.
+#
+# CREATE-ONLY, like every admin account in this collection:
+# - the login is replaced only while `admin` still has the factory password;
+# - the library path is set only while it is unset.
+# Either changed afterwards in the UI is never overwritten.
+#
+# Verified against the image NOMAD pins (0.6.26-ls386): the login change is
+# live at once; the library path is only read at startup, hence the restart.
+
+- name: Configure Calibre-Web's first run
+  when: "'nomad_calibreweb' in project_nomad_apps"
+  block:
+    # First start creates app.db, THEN its tables, THEN the admin row — and it
+    # can trail the install NOMAD reports as done. Until real (non-Guest) users
+    # exist it is "starting", and retried; "no admin row" alone must not read
+    # as "changed", or a fresh container is skipped on the very run that
+    # installed it. Once users exist, no `admin` with the factory password
+    # means someone already replaced it.
+    - name: Probe Calibre-Web's login and library settings
+      community.docker.docker_container_exec:
+        container: nomad_calibreweb
+        user: abc
+        argv:
+          - /lsiopy/bin/python3
+          - -c
+          - |
+            import json, os, sqlite3
+            from werkzeug.security import check_password_hash
+            try:
+                db = sqlite3.connect("file:/config/app.db?mode=ro", uri=True)
+                users = dict(db.execute(
+                    "SELECT name, password FROM user WHERE name != 'Guest'").fetchall())
+                library = db.execute("SELECT config_calibre_dir FROM settings").fetchone()
+            except sqlite3.Error:
+                users, library = {}, None
+            if not users:
+                state = "starting"
+            elif "admin" in users and check_password_hash(users["admin"], "admin123"):
+                state = "factory"
+            else:
+                state = "changed"
+            print(json.dumps({
+                "state": state,
+                "library_set": bool(library and library[0]),
+                "library_seeded": os.path.exists("/books/metadata.db"),
+            }))
+      register: project_nomad_calibreweb_probe
+      until: >-
+        project_nomad_calibreweb_probe.rc | default(1) == 0
+        and (project_nomad_calibreweb_probe.stdout | from_json).state != 'starting'
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    # Rename and re-hash in one transaction. werkzeug is what Calibre-Web itself
+    # checks passwords with, so any hash it generates is accepted at login.
+    - name: Replace the factory admin login
+      community.docker.docker_container_exec:
+        container: nomad_calibreweb
+        user: abc
+        env:
+          CW_USER: "{{ project_nomad_calibreweb_admin_user }}"
+          CW_PASSWORD: "{{ project_nomad_calibreweb_admin_password }}"
+        argv:
+          - /lsiopy/bin/python3
+          - -c
+          - |
+            import os, sqlite3
+            from werkzeug.security import generate_password_hash
+            user, password = os.environ["CW_USER"], os.environ["CW_PASSWORD"]
+            db = sqlite3.connect("/config/app.db")
+            with db:
+                if user != "admin" and db.execute(
+                        "SELECT 1 FROM user WHERE name = ?", (user,)).fetchone():
+                    raise SystemExit("a Calibre-Web user named %r already exists" % user)
+                db.execute("UPDATE user SET name = ?, password = ? WHERE name = 'admin'",
+                           (user, generate_password_hash(password)))
+      when:
+        - project_nomad_calibreweb_admin_password is defined
+        - (project_nomad_calibreweb_probe.stdout | from_json).state == 'factory'
+      changed_when: true
+      no_log: true
+
+    - name: Set the Calibre library path
+      when: not (project_nomad_calibreweb_probe.stdout | from_json).library_set
+      block:
+        # NOMAD seeds an empty Calibre library into its books folder (mounted
+        # at /books) before it starts Calibre-Web, and keeps an existing one.
+        # Calibre-Web rejects a path without metadata.db, so check rather than
+        # point it at nothing.
+        - name: Assert NOMAD seeded a Calibre library
+          ansible.builtin.assert:
+            that: (project_nomad_calibreweb_probe.stdout | from_json).library_seeded
+            fail_msg: >-
+              /books/metadata.db is missing in the nomad_calibreweb container, so
+              there is no Calibre library to point Calibre-Web at. NOMAD seeds an
+              empty one when it installs the app — check the install log in the
+              Command Center, or copy an existing Calibre library into NOMAD's
+              books folder.
+            quiet: true
+
+        - name: Point Calibre-Web at the library in /books
+          community.docker.docker_container_exec:
+            container: nomad_calibreweb
+            user: abc
+            argv:
+              - /lsiopy/bin/python3
+              - -c
+              - |
+                import sqlite3
+                db = sqlite3.connect("/config/app.db")
+                with db:
+                    db.execute("UPDATE settings SET config_calibre_dir = '/books' "
+                               "WHERE COALESCE(config_calibre_dir, '') = ''")
+          changed_when: true
+
+        # Through NOMAD rather than `docker restart`, so the admin's view of
+        # the container stays consistent.
+        - name: Restart Calibre-Web to load the library
+          ansible.builtin.uri:
+            url: "{{ _project_nomad_api }}/api/system/services/affect"
+            method: POST
+            body_format: json
+            body:
+              service_name: nomad_calibreweb
+              action: restart
+          changed_when: true
+
+        - name: Wait for Calibre-Web to come back
+          community.docker.docker_container_exec:
+            container: nomad_calibreweb
+            argv: [nc, -z, localhost, "8083"]
+          register: project_nomad_calibreweb_up
+          until: project_nomad_calibreweb_up.rc | default(1) == 0
+          retries: 30
+          delay: 2
+          changed_when: false

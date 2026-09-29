@@ -112,6 +112,26 @@ project_nomad_settings: {}
 # nomad_ollama — leave it out to keep AI off.
 project_nomad_apps: []
 
+# Launch-URL overrides, as service_name: URL — what an app's "Open" button in
+# the Command Center points at. By default NOMAD links http://<the host you
+# browsed to>:<app port>, which breaks once you reach NOMAD through Caddy:
+# the clean hostname has no such port. Point each app at its own caddy_sites
+# hostname instead (the upstream is <nomad-ip>:<app port>; the README lists
+# the ports).
+#
+# RECONCILED for declared keys, like project_nomad_settings: set back every run.
+# "" clears an override back to NOMAD's default link. Undeclared apps are left
+# alone, so an override set in the UI survives unless you declare that app
+# here. Values must be full http:// or https:// URLs — the role asserts it,
+# because NOMAD would quietly turn a bare host into plain http and mangle any
+# other scheme. NOMAD normalises what it stores (https://kiwix.example.com
+# becomes https://kiwix.example.com/); the role compares NOMAD's own result,
+# so either spelling is idempotent.
+#
+# The Dozzle "Service Logs & Metrics" link ignores these (upstream issue
+# #1324): it is always built from project_nomad_dozzle_port.
+project_nomad_app_urls: {}
+
 # Wikipedia edition: none, top-mini, top-nopic, all-mini, all-nopic or
 # all-maxi (full English Wikipedia with images, ~100 GB). Empty leaves the
 # selection to the UI. Changing it replaces the downloaded edition.
@@ -125,3 +145,33 @@ project_nomad_content_tiers: {}
 # Curated offline map collections, by slug. Upstream's catalogue is US regions
 # only (pacific, mountain, new-england, ...).
 project_nomad_map_collections: []
+
+# Map packs for anywhere, cut by NOMAD from Protomaps' latest global build —
+# the same as Maps → "Extract a region" in the UI. Each entry is ONE of:
+#   - countries: [GB, IE]   # ISO 3166-1 alpha-2, any case
+#   - group: europe         # a continent: africa, europe, north-america,
+#                           # south-america, ... (the run lists them on a typo)
+# plus optional maxzoom (0-15, default 15 — full street detail; each level
+# down roughly quarters the size) and label (the title shown in the UI).
+#
+# CREATE-ONLY, like the other content: a pack already on disk, or still being
+# extracted, is skipped — whichever global build it came from, so a newer
+# build does not re-extract everything monthly. To refresh a pack, delete it
+# in the UI and re-run. Changing maxzoom extracts a second copy at the new
+# zoom; delete the old one in the UI.
+project_nomad_map_regions: []
+
+# --- Calibre-Web ----------------------------------------------------------------
+# NOMAD's Calibre-Web (nomad_calibreweb) boots unconfigured. When it is in
+# project_nomad_apps the role always points it at the Calibre library NOMAD
+# seeds into its books folder (/books) — once, while no library path is set,
+# then restarts it, since Calibre-Web reads the path only at startup.
+#
+# It also boots with the well-known login admin / admin123, reachable by anyone
+# on the LAN. Set the password (NOT defined here; vault-encrypt it) and the
+# role replaces that login once, while it is still the factory one: `admin` is
+# renamed to this user and given the password. It never touches the account
+# again, so later UI changes stick.
+project_nomad_calibreweb_admin_user: admin
+# project_nomad_calibreweb_admin_password: !vault |
+#   ...

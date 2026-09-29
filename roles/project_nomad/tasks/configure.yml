@@ -84,6 +84,77 @@
       retries: 60
       delay: 10
 
+# After the installs, so an override for an app installed on this same run
+# lands on a service that exists. PUT on every run and compare NOMAD's
+# normalised result with what was stored before, rather than re-implementing
+# its normalisation here: `changed` then means the stored link really moved.
+- name: Apply the declared app launch URLs
+  when: project_nomad_app_urls | length > 0
+  block:
+    # NOMAD's own check can't be relied on here: its normaliser prepends
+    # http:// to anything without an http(s) scheme, so ftp://host is stored
+    # as "http://ftp//host" and a bare hostname silently becomes plain http —
+    # wrong behind Caddy. Demand the scheme up front instead.
+    - name: Assert app launch URLs carry an http(s) scheme
+      ansible.builtin.assert:
+        that:
+          - _bad | length == 0
+        fail_msg: >-
+          project_nomad_app_urls must be full http:// or https:// URLs (or ""
+          to clear); fix: {{ _bad | join(', ') }}.
+        quiet: true
+      vars:
+        _bad: >-
+          {{ project_nomad_app_urls | dict2items
+             | rejectattr('value', 'in', ['', none])
+             | rejectattr('value', 'match', '(?i)^https?://')
+             | map(attribute='key') | list }}
+
+    - name: Read the current app launch URLs
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/system/services"
+      register: project_nomad_url_services
+
+    - name: Set app launch URLs
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/system/services/custom-url"
+        method: PUT
+        body_format: json
+        body:
+          service_name: "{{ item.key }}"
+          # "" clears: NOMAD normalises an empty value to null.
+          custom_url: "{{ item.value | default('', true) }}"
+        status_code: [200, 403, 404, 422]
+      loop: "{{ project_nomad_app_urls | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      register: project_nomad_url_results
+      changed_when: >-
+        project_nomad_url_results.status == 200
+        and project_nomad_url_results.json.custom_url | default(none)
+            != _current.custom_url | default(none)
+      # Rejections are reported by the next task, with the reason spelled out.
+      failed_when: false
+      vars:
+        _current: >-
+          {{ project_nomad_url_services.json
+             | selectattr('service_name', '==', item.key) | first | default({}) }}
+
+    # One message for every rejection, rather than a failed loop item each
+    # echoing its whole registered result.
+    - name: Fail on rejected app launch URLs
+      ansible.builtin.fail:
+        msg: >-
+          project_nomad_app_urls rejected by NOMAD:
+          {% for r in _rejected %}{{ r.item.key }} ({{ _reasons[r.status] }}){{ '' if loop.last else '; ' }}{% endfor %}.
+      when: _rejected | length > 0
+      vars:
+        _rejected: "{{ project_nomad_url_results.results | rejectattr('status', '==', 200) | list }}"
+        _reasons:
+          404: no NOMAD app has that service name, see the README for the list
+          403: NOMAD allows no launch URL on a hidden dependency service
+          422: not a valid URL
+
 - name: Select the declared Wikipedia edition
   when: project_nomad_wikipedia | length > 0
   block:
@@ -166,6 +237,83 @@
       changed_when: project_nomad_tier_downloads.json.resources | default([], true) | length > 0
       vars:
         _status: "{{ project_nomad_categories.json | selectattr('slug', '==', item.key) | first }}"
+
+# Map packs cut from Protomaps' global build by country. NOMAD has no "already
+# have it" check — every extract request starts a new job — so the role works
+# out the file NOMAD would write and skips a pack whose file is on disk or whose
+# job is still queued/running. The name mirrors MapService.buildRegionSlug:
+# a continent group's id when the codes are exactly that group, the code
+# lower-cased for one country, otherwise custom-<sha1("CODE,CODE")[:8]> over
+# the upper-cased, de-duplicated, sorted codes. Any build date matches, so a
+# newer global build doesn't re-extract every pack each month — delete a pack
+# in the UI to have the next run fetch it fresh.
+- name: Extract the declared map regions
+  when: project_nomad_map_regions | length > 0
+  block:
+    - name: Read countries, groups, installed maps and map jobs
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/{{ item }}"
+      loop:
+        - maps/countries
+        - maps/country-groups
+        - maps/regions
+        - downloads/jobs/map
+      register: project_nomad_map_state
+
+    - name: Assert the map regions are valid
+      ansible.builtin.assert:
+        that:
+          - (item.group is defined) != (item.countries is defined)
+          - item.group is not defined or item.group in _groups | map(attribute='id')
+          - >-
+            item.countries is not defined
+            or item.countries | map('upper') | difference(_codes) | length == 0
+          - item.maxzoom | default(15) | int in range(0, 16)
+        fail_msg: >-
+          project_nomad_map_regions: {{ item }} — each entry needs exactly one of
+          `group` ({{ _groups | map(attribute='id') | join(', ') }}) or
+          `countries` (ISO 3166-1 alpha-2 codes NOMAD knows), and an optional
+          maxzoom from 0 to 15.
+        quiet: true
+      loop: "{{ project_nomad_map_regions }}"
+      loop_control:
+        label: "{{ item.group | default(item.countries | default([]) | join(',')) }}"
+      vars:
+        _groups: "{{ project_nomad_map_state.results[1].json.groups }}"
+        _codes: "{{ project_nomad_map_state.results[0].json.countries | map(attribute='code') | list }}"
+
+    - name: Extract missing map regions
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/maps/extract"
+        method: POST
+        body_format: json
+        body: >-
+          {{ {'countries': _resolved, 'maxzoom': _zoom | int}
+             | combine({'label': item.label} if item.label is defined else {}) }}
+      loop: "{{ project_nomad_map_regions }}"
+      loop_control:
+        label: "{{ _slug }} z{{ _zoom }}"
+      when: _present | length == 0
+      changed_when: true
+      vars:
+        _groups: "{{ project_nomad_map_state.results[1].json.groups }}"
+        _resolved: >-
+          {{ (_groups | selectattr('id', '==', item.group) | first).countries
+             if item.group is defined
+             else item.countries | map('upper') | unique | sort }}
+        _match: "{{ _groups | selectattr('countries', '==', _resolved) | map(attribute='id') | first | default('') }}"
+        _slug: >-
+          {{ _match if _match
+             else (_resolved[0] | lower) if _resolved | length == 1
+             else 'custom-' ~ (_resolved | join(',') | hash('sha1'))[:8] }}
+        _zoom: "{{ item.maxzoom | default(15) | int }}"
+        _pattern: "^{{ _slug }}_[0-9]+_z{{ _zoom }}\\.pmtiles$"
+        _present: >-
+          {{ ((project_nomad_map_state.results[2].json.files | map(attribute='name') | list)
+              + (project_nomad_map_state.results[3].json
+                 | rejectattr('status', '==', 'failed')
+                 | map(attribute='filepath') | map('basename') | list))
+             | select('match', _pattern) | list }}
 
 - name: Download the declared map collections
   when: project_nomad_map_collections | length > 0
