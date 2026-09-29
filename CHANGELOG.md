@@ -3,6 +3,50 @@
 All notable changes to this collection are documented here. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-29
+
+### Added
+
+- `actualbudget` role: the Actual Budget sync server, which also serves the web
+  UI. It installs the pinned `@actual-app/sync-server` from npm into a versioned
+  directory on NodeSource Node.js 22 and runs it under systemd. The server
+  password is set once through Actual's bootstrap API, so the fresh server is
+  never left open for anyone to claim, and after that the role never changes
+  it. The examples add a `budget` Caddy site (the UI only loads over HTTPS), a
+  Gatus check, a Homepage tile and a backup path.
+  - Optional OpenID login, configured through Actual's own environment
+    variables. It is switched on only after the password exists. Switching it
+    off is reconciled too, through Actual's `/openid/disable`, which deletes
+    OpenID users; the README spells this out. The public hostname is derived
+    from the Caddy host's `caddy_base_domain`.
+  - Optional bank-sync credentials (`actualbudget_bank_sync_secrets`), passed
+    through by Actual's own secret names and set only if missing, so a key
+    rotated in the UI is never undone.
+
+- `project_nomad_app_urls`: launch-URL overrides for NOMAD's content apps, set
+  through the admin's `custom-url` API, so each app's "Open" button can point
+  at a Caddy hostname rather than `<host>:<port>`. Declared apps are
+  reconciled every run; `""` restores NOMAD's default link. The README lists
+  the default app ports for the Caddy upstreams, and the examples add `nomad`,
+  `kiwix` and `cyberchef` sites.
+- `project_nomad_map_regions`: map packs for any country or continent, cut
+  from Protomaps' global build through NOMAD's extract API. The curated
+  collections only cover US regions. Only ever added: the role mirrors NOMAD's
+  file naming and skips a pack already on disk or still extracting, from any
+  build date, and retries one whose extraction failed.
+- Calibre-Web's first run is automated. It is pointed at the Calibre library
+  NOMAD seeds in `/books`, then restarted through NOMAD's API, since it reads
+  the path only at startup. With `project_nomad_calibreweb_admin_user` and
+  `_password` set, the factory `admin`/`admin123` login is replaced too. Both
+  happen once, only while still unconfigured, so later changes in Calibre-Web
+  stick.
+
+### Fixed
+
+- `homepage` reran the NodeSource setup script on every run. The script now
+  writes `nodesource.sources`, not the `nodesource.list` its `creates:` guard
+  checked for.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added

@@ -26,7 +26,7 @@ it walks from a bare Proxmox host to a running homelab, and
 ## Installation
 
 ```bash
-ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.1.0
+ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.2.0
 ```
 
 Or pin it in a `requirements.yml`:
@@ -35,7 +35,7 @@ Or pin it in a `requirements.yml`:
 collections:
   - name: https://github.com/wolfy6678/homelab-ansible-collection.git
     type: git
-    version: v1.1.0
+    version: v1.2.0
 ```
 
 ```bash
@@ -127,7 +127,7 @@ straight from git:
 
 ```hcl
 module "lxc" {
-  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.1.0"
+  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.2.0"
   for_each = var.lxcs
 
   hostname        = each.key
