@@ -106,6 +106,14 @@ homepage_services:
         description: Homelab documentation wiki
         siteMonitor: "http://{{ hostvars[groups['otterwiki'][0]].ansible_host }}"
 
+      - name: Actual Budget
+        icon: actual-budget.svg
+        # The UI only loads over HTTPS, so link the Caddy hostname rather than
+        # the IP; the monitor can still probe the IP directly.
+        href: "https://budget.{{ hostvars[groups['caddy'][0]].caddy_base_domain }}"
+        description: Personal budgeting
+        siteMonitor: "http://{{ hostvars[groups['actualbudget'][0]].ansible_host }}:5006/health"
+
       - name: Jellyfin
         icon: jellyfin.svg
         href: "http://{{ hostvars[groups['jellyfin'][0]].ansible_host }}:8096"

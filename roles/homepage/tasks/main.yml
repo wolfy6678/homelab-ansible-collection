@@ -5,12 +5,14 @@
     state: present
     update_cache: true
 
+# The setup script writes a deb822 nodesource.sources (older versions wrote
+# nodesource.list, which never appears now and made this rerun every time).
 - name: Add NodeSource Node.js 22 repository  # noqa: command-instead-of-module
   ansible.builtin.shell:
     cmd: set -o pipefail; curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
   args:
     executable: /bin/bash
-    creates: /etc/apt/sources.list.d/nodesource.list
+    creates: /etc/apt/sources.list.d/nodesource.sources
 
 - name: Install OS dependencies
   ansible.builtin.apt:

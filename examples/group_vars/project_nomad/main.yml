@@ -22,6 +22,16 @@ project_nomad_version: 1.34.1
 # project_nomad_db_root_password: !vault |
 #   ...
 
+# Served through Caddy (the nomad, kiwix and cyberchef entries in
+# group_vars/caddy). The admin builds absolute links from project_nomad_url,
+# and project_nomad_app_urls repoints each app's "Open" button at its clean
+# hostname instead of <this host>:<port>. Kolibri has no Caddy site here, so
+# it keeps NOMAD's default port link.
+project_nomad_url: "https://nomad.{{ hostvars[groups['caddy'][0]].caddy_base_domain }}"
+project_nomad_app_urls:
+  nomad_kiwix_server: "https://kiwix.{{ hostvars[groups['caddy'][0]].caddy_base_domain }}"
+  nomad_cyberchef: "https://cyberchef.{{ hostvars[groups['caddy'][0]].caddy_base_domain }}"
+
 # Dozzle (container logs, linked from Settings) has no authentication.
 project_nomad_dozzle_enabled: true
 
@@ -49,3 +59,19 @@ project_nomad_content_tiers:
 # Upstream's offline map collections are US regions only.
 # project_nomad_map_collections:
 #   - pacific
+
+# Map packs for anywhere else, cut from the global map by country or continent.
+# Only ever added; a pack already on disk or still extracting is skipped.
+project_nomad_map_regions:
+  - countries: [GB, IE]
+    label: British Isles
+  # - group: europe      # a whole continent — lower the zoom, it is large
+  #   maxzoom: 10
+
+# Calibre-Web (when nomad_calibreweb is in project_nomad_apps) is pointed at
+# the library NOMAD seeds in /books automatically. It also starts as
+# admin / admin123; setting a password replaces that login once, while it is
+# still the factory one, and UI changes afterwards stick.
+# project_nomad_calibreweb_admin_user: admin
+# project_nomad_calibreweb_admin_password: !vault |
+#   ...

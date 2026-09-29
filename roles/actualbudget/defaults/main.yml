@@ -1,0 +1,110 @@
+---
+# Actual Budget sync server — the npm package @actual-app/sync-server, which
+# also serves the web UI (it depends on @actual-app/web). Installed natively
+# with npm into a versioned directory and run by systemd.
+#
+# Upgrades happen by bumping this pin: the install dir is keyed on it, so a new
+# version lands beside the old one and the symlink flips across. Actual
+# releases monthly as YY.M.patch; the package needs Node >= 22.
+actualbudget_version: 26.9.0
+actualbudget_user: actualbudget
+actualbudget_install_root: /opt/actualbudget
+actualbudget_install_dir: "{{ actualbudget_install_root }}/{{ actualbudget_version }}"
+
+# Holds server-files/ (the account db: password hash, sessions) and
+# user-files/ (every budget file synced from a client). This is the one path
+# to back up — add it to backup_default_paths.
+actualbudget_data_dir: /var/lib/actualbudget
+
+actualbudget_port: 5006
+# Actual's own default is "::", which fails with EAFNOSUPPORT in a container
+# whose kernel has IPv6 disabled. 0.0.0.0 works everywhere; set "::" if you
+# want the server reachable over IPv6 too.
+actualbudget_hostname: 0.0.0.0
+
+# NodeSource major version. The sync server declares engines ">=22"; Homepage
+# uses the same repo, so co-locating the two on one container is fine.
+actualbudget_nodejs_major: 22
+
+# Upload limits in MB. A budget file is uploaded whole on every sync reset, and
+# a few years of transactions with attachments passes Actual's 20 MB default
+# sooner than you'd expect — the client then fails with an opaque "file too
+# large" sync error. Encrypted files are larger for the same budget.
+actualbudget_upload_file_sync_size_limit_mb: 20
+actualbudget_upload_sync_encrypted_file_sync_size_limit_mb: 50
+actualbudget_upload_file_size_limit_mb: 20
+
+# Proxies whose X-Forwarded-For is believed, as CIDRs. Empty keeps Actual's own
+# default (the private ranges), which already covers a Caddy container on the
+# LAN — the login rate limiter then keys on the real client rather than on
+# Caddy. Narrow it to the Caddy host if you want to be strict:
+#   actualbudget_trusted_proxies:
+#     - "{{ hostvars[groups['caddy'][0]].ansible_host }}/32"
+actualbudget_trusted_proxies: []
+
+# The server password, set ONCE through Actual's bootstrap API on first run and
+# never reconciled afterwards. It is what unlocks the server, not a budget's
+# end-to-end encryption key; that one is set per budget in the client and never
+# touches the server.
+#
+# Changing it in the UI is safe UNLESS the role also logs in to the API — i.e.
+# actualbudget_bank_sync_secrets is non-empty, or OpenID is being switched off.
+# Those runs then fail at login until the vault matches the UI again.
+actualbudget_server_password: >-
+  {{ undef(hint='Set actualbudget_server_password to the Actual server password (vault-encrypt it in group_vars/actualbudget/main.yml)') }}
+
+# --- OpenID / SSO --------------------------------------------------------------
+# Off by default. When on, the settings are written to a root-only env file
+# AFTER the password bootstrap, and the restart makes Actual add OpenID as the
+# active login method. The password is kept (inactive) rather than replaced,
+# which is what lets the role keep logging in to the API afterwards.
+#
+# THE FIRST USER TO LOG IN THROUGH OPENID BECOMES THE SERVER OWNER, PERMANENTLY.
+# Log in yourself straight after the run that enables it.
+#
+# Switching it off again (true -> false) is reconciled too: the role removes
+# the env file, restarts, and calls Actual's /openid/disable with the server
+# password. That DELETES every OpenID user and their budget access grants —
+# it is Actual's own "switch to password" action, not a soft toggle. Removing
+# the env file by hand instead would leave OpenID active with no config, and
+# nobody could log in through the UI.
+actualbudget_openid_enabled: false
+# The issuer URL; Actual appends /.well-known/openid-configuration itself.
+actualbudget_openid_discovery_url: >-
+  {{ undef(hint='Set actualbudget_openid_discovery_url to your identity provider issuer URL') }}
+actualbudget_openid_client_id: >-
+  {{ undef(hint='Set actualbudget_openid_client_id to the OpenID client ID for Actual') }}
+actualbudget_openid_client_secret: >-
+  {{ undef(hint='Set actualbudget_openid_client_secret to the OpenID client secret (vault-encrypt it)') }}
+# openid, or oauth2 for providers that are OAuth2-only (e.g. GitHub).
+actualbudget_openid_auth_method: openid
+# Hides the password option from the login screen. It does NOT disable the
+# password: /account/login still accepts it (the role relies on that), so keep
+# it strong and vaulted.
+actualbudget_openid_enforce: false
+
+# The public URL users reach Actual on; the provider must allow
+# <this>/openid/callback as a redirect URI. Derived from the Caddy host's
+# caddy_base_domain and the name of Actual's caddy_sites entry, so it tracks a
+# domain rename; with no caddy group it must be set explicitly.
+actualbudget_caddy_site_name: budget
+actualbudget_caddy_domain: >-
+  {{ (hostvars[groups['caddy'][0]].caddy_base_domain | default(''))
+     if (groups['caddy'] | default([])) else '' }}
+actualbudget_openid_server_hostname: >-
+  {{ ('https://' ~ actualbudget_caddy_site_name ~ '.' ~ actualbudget_caddy_domain)
+     if actualbudget_caddy_domain
+     else undef(hint='Set actualbudget_openid_server_hostname to the public https:// URL of Actual') }}
+
+# --- Bank sync credentials ----------------------------------------------------
+# Server-wide secrets for Actual's bank-sync providers, as {name: value}. Names
+# are Actual's own and passed through verbatim: gocardless_secretId,
+# gocardless_secretKey, pluggyai_clientId, pluggyai_clientSecret,
+# enablebanking_applicationId, enablebanking_secretKey, ...
+#
+# Create-only: the API can say a secret exists but never returns its value, so
+# one that exists is left alone — rotating a key in the UI is never undone,
+# and rotating it here means deleting it in the UI first. SimpleFIN doesn't fit:
+# its setup token is single-use and exchanged for an access key on first
+# connect, so link it in the UI.
+actualbudget_bank_sync_secrets: {}

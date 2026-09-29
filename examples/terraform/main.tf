@@ -9,7 +9,7 @@
 # ref and re-run `terraform init -upgrade` to pick up a new release.
 
 module "lxc" {
-  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.1.0"
+  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.2.0"
   for_each = var.lxcs
 
   hostname        = coalesce(each.value.hostname, each.key)
