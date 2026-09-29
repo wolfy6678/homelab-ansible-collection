@@ -109,7 +109,7 @@ module from scratch:
 
 ```hcl
 module "lxc" {
-  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.0.0"
+  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.1.0"
   for_each = var.lxcs
 
   hostname        = each.key

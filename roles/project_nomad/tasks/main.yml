@@ -19,3 +19,8 @@
 
 - name: Deploy and start the NOMAD management stack
   ansible.builtin.import_tasks: service.yml
+
+- name: Configure NOMAD through its API
+  ansible.builtin.import_tasks: configure.yml
+  vars:
+    _project_nomad_api: "http://127.0.0.1:{{ project_nomad_port }}"

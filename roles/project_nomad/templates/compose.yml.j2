@@ -63,7 +63,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-{% if project_nomad_dozzle_enabled %}
+{% if project_nomad_dozzle_enabled | bool %}
   dozzle:
     image: {{ project_nomad_dozzle_image }}
     container_name: nomad_dozzle

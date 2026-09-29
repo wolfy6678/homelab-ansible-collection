@@ -1,0 +1,205 @@
+---
+# Declarative configuration through the admin's HTTP API — the same calls the
+# setup wizard makes. Called from the LXC itself against 127.0.0.1, so it
+# needs no route from the controller.
+#
+# Settings are reconciled: a declared key is set back on every run, so it is
+# no longer changeable from the UI. Apps and content are create-only: missing
+# ones are installed/downloaded, but nothing added in the UI is ever removed,
+# and removing an entry here does not uninstall it (do that from the UI, which
+# keeps the admin's records consistent).
+#
+# Downloads are started, not waited for — a full Wikipedia takes hours. The
+# admin keys each download job on its URL, so a re-run while one is still in
+# flight neither restarts nor duplicates it.
+
+# Wikipedia and the content tiers are ZIM archives, which only Kiwix serves.
+- name: Assert Kiwix is declared when ZIM content is
+  ansible.builtin.assert:
+    that:
+      - "'nomad_kiwix_server' in project_nomad_apps"
+    fail_msg: >-
+      project_nomad_wikipedia and project_nomad_content_tiers download ZIM
+      archives, which only the Information Library serves: add
+      nomad_kiwix_server to project_nomad_apps.
+    quiet: true
+  when: project_nomad_wikipedia | length > 0 or project_nomad_content_tiers | length > 0
+
+- name: Read the declared NOMAD settings
+  ansible.builtin.uri:
+    url: "{{ _project_nomad_api }}/api/system/settings?key={{ item.key | urlencode }}"
+  loop: "{{ project_nomad_settings | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: project_nomad_current_settings
+
+# The admin stores every value as a string and hands booleans back parsed, so
+# compare as strings — `true` and "True" and 72 and "72" are the same setting.
+- name: Apply the declared NOMAD settings
+  ansible.builtin.uri:
+    url: "{{ _project_nomad_api }}/api/system/settings"
+    method: PATCH
+    body_format: json
+    body:
+      key: "{{ item.item.key }}"
+      value: "{{ item.item.value }}"
+  loop: "{{ project_nomad_current_settings.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: item.json.value | string != item.item.value | string
+  changed_when: true
+
+- name: Install the declared NOMAD apps
+  when: project_nomad_apps | length > 0
+  block:
+    - name: List installed NOMAD apps
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/system/services"
+      register: project_nomad_services
+
+    # Kicks the install off; the admin pulls the image and starts the container
+    # in the background. An unknown name comes back 400 with the reason.
+    - name: Install missing NOMAD apps
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/system/services/install"
+        method: POST
+        body_format: json
+        body:
+          service_name: "{{ item }}"
+      loop: >-
+        {{ project_nomad_apps
+           | difference(project_nomad_services.json | map(attribute='service_name')) }}
+      changed_when: true
+
+    # Wait, so content downloaded below has Kiwix up to serve it and a failed
+    # image pull fails the run instead of an idle tile in the UI.
+    - name: Wait for the NOMAD apps to finish installing
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/system/services"
+      register: project_nomad_services
+      until: >-
+        project_nomad_apps
+        | difference(project_nomad_services.json | map(attribute='service_name'))
+        | length == 0
+      retries: 60
+      delay: 10
+
+- name: Select the declared Wikipedia edition
+  when: project_nomad_wikipedia | length > 0
+  block:
+    - name: Read the Wikipedia selection
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/zim/wikipedia"
+      register: project_nomad_wikipedia_state
+
+    - name: Assert the Wikipedia edition exists
+      ansible.builtin.assert:
+        that:
+          - project_nomad_wikipedia in _options
+        fail_msg: >-
+          project_nomad_wikipedia is "{{ project_nomad_wikipedia }}"; NOMAD
+          offers {{ _options | join(', ') }}.
+        quiet: true
+      vars:
+        _options: "{{ project_nomad_wikipedia_state.json.options | map(attribute='id') | list }}"
+
+    # Re-selecting a failed download retries it. Selecting a different edition
+    # replaces the current one once the new file lands; "none" deletes it.
+    - name: Select the Wikipedia edition
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/zim/wikipedia/select"
+        method: POST
+        body_format: json
+        body:
+          optionId: "{{ project_nomad_wikipedia }}"
+      when: >-
+        _current.optionId | default('') != project_nomad_wikipedia
+        or _current.status | default('') not in ['installed', 'downloading', 'none']
+      changed_when: true
+      vars:
+        # null on a fresh install, before anything has been selected
+        _current: "{{ project_nomad_wikipedia_state.json.currentSelection | default({}, true) }}"
+
+- name: Download the declared content tiers
+  when: project_nomad_content_tiers | length > 0
+  block:
+    - name: Read the curated content categories
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/zim/curated-categories"
+      register: project_nomad_categories
+
+    - name: Assert the content tiers exist
+      ansible.builtin.assert:
+        that:
+          - item.key in _categories
+          - item.value in (_categories[item.key] | map(attribute='slug'))
+        fail_msg: >-
+          project_nomad_content_tiers: "{{ item.key }}: {{ item.value }}" is not
+          a NOMAD category tier. Categories:
+          {{ _categories.keys() | join(', ') }}; tiers are named
+          <category>-essential, -standard or -comprehensive.
+        quiet: true
+      loop: "{{ project_nomad_content_tiers | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      vars:
+        _categories: "{{ project_nomad_categories.json | items2dict(key_name='slug', value_name='tiers') }}"
+
+    # Tiers are cumulative. A tier already installed or downloading is skipped
+    # here; asking for a smaller tier than is installed is a no-op in the admin
+    # (it filters out what is on disk), which the changed test reflects.
+    - name: Download content tiers
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/zim/download-category-tier"
+        method: POST
+        body_format: json
+        body:
+          categorySlug: "{{ item.key }}"
+          tierSlug: "{{ item.value }}"
+      loop: "{{ project_nomad_content_tiers | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}: {{ item.value }}"
+      when: >-
+        item.value not in [_status.installedTierSlug | default(''),
+                           _status.downloadingTierSlug | default('')]
+      register: project_nomad_tier_downloads
+      changed_when: project_nomad_tier_downloads.json.resources | default([], true) | length > 0
+      vars:
+        _status: "{{ project_nomad_categories.json | selectattr('slug', '==', item.key) | first }}"
+
+- name: Download the declared map collections
+  when: project_nomad_map_collections | length > 0
+  block:
+    - name: Read the curated map collections
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/maps/curated-collections"
+      register: project_nomad_maps
+
+    - name: Assert the map collections exist
+      ansible.builtin.assert:
+        that:
+          - project_nomad_map_collections | difference(_slugs) | length == 0
+        fail_msg: >-
+          Unknown map collections in project_nomad_map_collections:
+          {{ project_nomad_map_collections | difference(_slugs) | join(', ') }}.
+          NOMAD offers {{ _slugs | join(', ') }}.
+        quiet: true
+      vars:
+        _slugs: "{{ project_nomad_maps.json | map(attribute='slug') | list }}"
+
+    - name: Download map collections
+      ansible.builtin.uri:
+        url: "{{ _project_nomad_api }}/api/maps/download-collection"
+        method: POST
+        body_format: json
+        body:
+          slug: "{{ item.slug }}"
+      loop: >-
+        {{ project_nomad_maps.json
+           | selectattr('slug', 'in', project_nomad_map_collections)
+           | rejectattr('all_installed') }}
+      loop_control:
+        label: "{{ item.slug }}"
+      register: project_nomad_map_downloads
+      # Empty when every missing file is already downloading.
+      changed_when: project_nomad_map_downloads.json.resources | default([], true) | length > 0

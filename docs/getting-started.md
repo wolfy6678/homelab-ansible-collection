@@ -35,7 +35,7 @@ module are yours, in your own git repository. Start from the skeleton:
 ```bash
 git init homelab && cd homelab
 # copy the examples/ directory out of the collection, or from the repo:
-curl -sL https://github.com/wolfy6678/homelab-ansible-collection/archive/refs/tags/v1.0.0.tar.gz \
+curl -sL https://github.com/wolfy6678/homelab-ansible-collection/archive/refs/tags/v1.1.0.tar.gz \
   | tar xz --strip-components=2 '*/examples'
 ```
 

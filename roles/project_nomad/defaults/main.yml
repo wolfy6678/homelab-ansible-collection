@@ -88,3 +88,40 @@ project_nomad_db_password: >-
   {{ undef(hint='Set project_nomad_db_password to a random string (vault-encrypt it in group_vars/project_nomad/main.yml)') }}
 project_nomad_db_root_password: >-
   {{ undef(hint='Set project_nomad_db_root_password to a random string (vault-encrypt it in group_vars/project_nomad/main.yml)') }}
+
+# --- Configuration --------------------------------------------------------------
+# Applied through the admin's HTTP API after the stack is up (tasks/
+# configure.yml) — the same calls the first-run setup wizard makes. Everything
+# ships empty: which apps and content you want is yours to declare. See the
+# README for the catalogue of names.
+
+# Admin settings (the KV store behind Settings), as key: value. RECONCILED: a
+# key declared here is set back on every run, so it stops being editable from
+# the UI; keys not declared are left alone. The admin rejects unknown keys.
+# Useful ones: ui.hasVisitedEasySetup (true skips the setup wizard — worth
+# setting when this role declares the content), ui.theme,
+# appAutoUpdate.enabled and contentAutoUpdate.* (the admin updating apps and
+# ZIMs itself, in a nightly window). autoUpdate.* is the admin's own upgrade,
+# which cannot work without the updater sidecar (see above).
+project_nomad_settings: {}
+
+# Apps to install, by NOMAD service name (nomad_kiwix_server, nomad_kolibri,
+# nomad_cyberchef, nomad_flatnotes, ...). CREATE-ONLY: missing apps are
+# installed and waited for; apps installed from the UI are never removed, and
+# dropping one from this list does not uninstall it. The AI Assistant is
+# nomad_ollama — leave it out to keep AI off.
+project_nomad_apps: []
+
+# Wikipedia edition: none, top-mini, top-nopic, all-mini, all-nopic or
+# all-maxi (full English Wikipedia with images, ~100 GB). Empty leaves the
+# selection to the UI. Changing it replaces the downloaded edition.
+project_nomad_wikipedia: ""
+
+# Curated ZIM collections, as category: tier — e.g. medicine:
+# medicine-standard. Tiers are cumulative (standard includes essential). Only
+# grows content: asking for a smaller tier than is installed does nothing.
+project_nomad_content_tiers: {}
+
+# Curated offline map collections, by slug. Upstream's catalogue is US regions
+# only (pacific, mountain, new-england, ...).
+project_nomad_map_collections: []
