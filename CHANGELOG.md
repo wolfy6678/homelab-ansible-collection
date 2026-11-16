@@ -3,6 +3,18 @@
 All notable changes to this collection are documented here. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2] - 2026-11-16
+
+### Fixed
+
+- `project_nomad`: the role now supports `--check`. Its read-only API calls
+  and the Calibre-Web probe run with `check_mode: false`, because the
+  conditions on the write tasks are built from what they return. Before, a dry
+  run failed at the first settings comparison. Writes are still skipped under
+  `--check`, the wait for app installs is skipped, and the launch-URL
+  rejection check ignores PUTs that check mode never made. A normal run
+  behaves exactly as before.
+
 ## [1.2.1] - 2026-11-16
 
 ### Fixed
