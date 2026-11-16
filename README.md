@@ -42,6 +42,15 @@ collections:
 ansible-galaxy collection install -r requirements.yml
 ```
 
+### Upgrading
+
+Before moving your pin to a newer tag, read every [CHANGELOG](CHANGELOG.md) entry
+between your version and the new one. Look for an **Upgrade notes** section: it
+lists anything to back up first, steps to run by hand, and upstream behaviour
+changes, and says how to roll back. Re-install with `--force` after changing
+the pin; `ansible-galaxy` doesn't re-fetch a collection that's already
+installed.
+
 ## Usage
 
 Reference roles by their fully-qualified name:
