@@ -9,6 +9,10 @@
 # and removing an entry here does not uninstall it (do that from the UI, which
 # keeps the admin's records consistent).
 #
+# The read-only GETs run even under --check (check_mode: false), because the
+# write tasks' conditions are built from what they return; the writes
+# themselves are skipped in check mode.
+#
 # Downloads are started, not waited for — a full Wikipedia takes hours. The
 # admin keys each download job on its URL, so a re-run while one is still in
 # flight neither restarts nor duplicates it.
@@ -32,6 +36,7 @@
   loop_control:
     label: "{{ item.key }}"
   register: project_nomad_current_settings
+  check_mode: false
 
 # The admin stores every value as a string and hands booleans back parsed, so
 # compare as strings — `true` and "True" and 72 and "72" are the same setting.
@@ -56,6 +61,7 @@
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/system/services"
       register: project_nomad_services
+      check_mode: false
 
     # Kicks the install off; the admin pulls the image and starts the container
     # in the background. An unknown name comes back 400 with the reason.
@@ -73,10 +79,13 @@
 
     # Wait, so content downloaded below has Kiwix up to serve it and a failed
     # image pull fails the run instead of an idle tile in the UI.
+    # Not under --check: no install was started, so there is nothing to wait for
+    # (and `until` is evaluated even when check mode skips the call).
     - name: Wait for the NOMAD apps to finish installing
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/system/services"
       register: project_nomad_services
+      when: not ansible_check_mode
       until: >-
         project_nomad_apps
         | difference(project_nomad_services.json | map(attribute='service_name'))
@@ -114,6 +123,7 @@
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/system/services"
       register: project_nomad_url_services
+      check_mode: false
 
     - name: Set app launch URLs
       ansible.builtin.uri:
@@ -149,7 +159,10 @@
           {% for r in _rejected %}{{ r.item.key }} ({{ _reasons[r.status] }}){{ '' if loop.last else '; ' }}{% endfor %}.
       when: _rejected | length > 0
       vars:
-        _rejected: "{{ project_nomad_url_results.results | rejectattr('status', '==', 200) | list }}"
+        # selectattr skips items the PUT never made (skipped in --check mode).
+        _rejected: >-
+          {{ project_nomad_url_results.results | selectattr('status', 'defined')
+             | rejectattr('status', '==', 200) | list }}
         _reasons:
           404: no NOMAD app has that service name, see the README for the list
           403: NOMAD allows no launch URL on a hidden dependency service
@@ -162,6 +175,7 @@
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/zim/wikipedia"
       register: project_nomad_wikipedia_state
+      check_mode: false
 
     - name: Assert the Wikipedia edition exists
       ansible.builtin.assert:
@@ -198,6 +212,7 @@
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/zim/curated-categories"
       register: project_nomad_categories
+      check_mode: false
 
     - name: Assert the content tiers exist
       ansible.builtin.assert:
@@ -259,6 +274,7 @@
         - maps/regions
         - downloads/jobs/map
       register: project_nomad_map_state
+      check_mode: false
 
     - name: Assert the map regions are valid
       ansible.builtin.assert:
@@ -322,6 +338,7 @@
       ansible.builtin.uri:
         url: "{{ _project_nomad_api }}/api/maps/curated-collections"
       register: project_nomad_maps
+      check_mode: false
 
     - name: Assert the map collections exist
       ansible.builtin.assert:

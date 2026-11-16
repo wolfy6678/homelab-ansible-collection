@@ -52,6 +52,7 @@
                 "library_seeded": os.path.exists("/books/metadata.db"),
             }))
       register: project_nomad_calibreweb_probe
+      check_mode: false   # read-only (mode=ro); the tasks below key off it
       until: >-
         project_nomad_calibreweb_probe.rc | default(1) == 0
         and (project_nomad_calibreweb_probe.stdout | from_json).state != 'starting'
