@@ -30,7 +30,9 @@ upstream's compose file. Content apps are then installed from the UI.
 - **Storage.** Content is large — full English Wikipedia alone is ~100 GB.
   Either size `rootfs_size` for it or bind-mount bigger storage in with
   `lxc_overrides.mountpoints` and point `project_nomad_storage_dir` at the
-  mount.
+  mount. MySQL itself (`/opt/project-nomad/mysql`) stays on the rootfs; it
+  runs with `--skip-log-bin`, because content imports would otherwise fill the
+  rootfs with binary logs nothing reads.
 - The `community.docker` collection (a dependency of `homelab.core`, installed
   with it).
 
