@@ -80,6 +80,11 @@ services:
     image: {{ project_nomad_mysql_image }}
     container_name: nomad_mysql
     restart: unless-stopped
+    # Binary logging is on by default in MySQL 8, but nothing here replicates or
+    # replays it, and MySQL only expires old logs when it rotates to a new file.
+    # NOMAD's content imports (the drug-label dataset) write GBs of binlog, which
+    # filled a 16G rootfs and stalled every database write until space was freed.
+    command: ["--skip-log-bin"]
     environment:
       - {{ env('MYSQL_ROOT_PASSWORD', project_nomad_db_root_password) }}
       - MYSQL_DATABASE=nomad

@@ -3,6 +3,17 @@
 All notable changes to this collection are documented here. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-11-16
+
+### Fixed
+
+- `project_nomad`: MySQL now runs with `--skip-log-bin`. MySQL 8 keeps binary
+  logs by default and only expires them when it rotates to a new file, so
+  NOMAD's content imports (the drug-label dataset) built up about 6 GB of
+  binlog that nothing reads. That filled a 16G rootfs and stalled every
+  database write. Existing binlog files are not deleted. On a host that is
+  already deployed, run `PURGE BINARY LOGS BEFORE NOW()` before the upgrade.
+
 ## [1.2.0] - 2026-09-29
 
 ### Added
