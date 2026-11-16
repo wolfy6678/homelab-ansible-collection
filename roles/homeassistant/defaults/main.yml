@@ -15,7 +15,7 @@ homeassistant_port: 8123
 # Communication > RS485). Set homeassistant_foxess_enabled: true to activate.
 homeassistant_foxess_enabled: false
 homeassistant_foxess_repo: https://github.com/nathanmarlor/foxess_modbus.git
-homeassistant_foxess_version: v1.15.0
+homeassistant_foxess_version: v1.16.0
 
 # Hildebrand Glow (DCC) integration — UK SMETS smart meter data pulled from the DCC
 # via the Hildebrand Glow API (https://github.com/jonandel/ha-hildebrandglow-dcc, the

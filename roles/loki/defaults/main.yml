@@ -4,7 +4,7 @@
 # Grafana Alloy (the alloy role) ships OPNsense syslog into it; Grafana reads it
 # via a provisioned Loki datasource. Installed from the upstream release zip
 # (pinned) — same binary-download pattern as prometheus/node_exporter/gatus.
-loki_version: v3.7.3
+loki_version: v3.7.10
 loki_port: 3100
 loki_user: loki
 loki_install_dir: /opt/loki

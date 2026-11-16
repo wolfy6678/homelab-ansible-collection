@@ -1,5 +1,5 @@
 ---
-otterwiki_version: 2.20.6
+otterwiki_version: 2.26.3
 otterwiki_user: otterwiki
 otterwiki_venv_dir: /srv/otterwiki
 otterwiki_config_dir: /etc/otterwiki

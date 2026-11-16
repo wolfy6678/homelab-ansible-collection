@@ -3,7 +3,7 @@
 # node_exporter on every host (targets derived from the inventory) plus,
 # optionally, the Proxmox API via prometheus-pve-exporter. Installed from the
 # upstream release tarball (pinned) — same binary-download pattern as gatus.
-prometheus_version: v3.12.0
+prometheus_version: v3.16.0
 prometheus_port: 9090
 prometheus_user: prometheus
 prometheus_install_dir: /opt/prometheus
@@ -65,7 +65,7 @@ prometheus_proxmox_pin_ip: ""
 # provides host metrics when this is off. When on, requires a Proxmox API token
 # with the PVEAuditor role (setup steps in group_vars/monitoring/main.yml).
 prometheus_pve_exporter_enabled: true
-prometheus_pve_exporter_version: "3.9.0"
+prometheus_pve_exporter_version: "3.12.0"
 prometheus_pve_exporter_port: 9221
 prometheus_pve_exporter_venv: /srv/pve-exporter
 # PVE host the exporter queries, derived from the `proxmox` inventory group

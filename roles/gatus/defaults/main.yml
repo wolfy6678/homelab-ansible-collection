@@ -1,5 +1,5 @@
 ---
-gatus_version: v5.36.0
+gatus_version: v5.38.0
 gatus_user: gatus
 gatus_install_dir: /opt/gatus
 gatus_config_dir: /etc/gatus
@@ -20,7 +20,7 @@ gatus_alert_success_threshold: 2
 
 # Go toolchain version used to build Gatus from source.
 # Must satisfy the go directive in Gatus's go.mod (currently go 1.26.3).
-gatus_go_version: "1.26.3"
+gatus_go_version: "1.26.11"
 
 # --- Certificate expiry monitoring -------------------------------------------
 # One HTTPS check per Caddy clean hostname, validating the full served chain

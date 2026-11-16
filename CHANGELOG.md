@@ -3,6 +3,38 @@
 All notable changes to this collection are documented here. This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-11-16
+
+### Changed
+
+Upstream version bumps. All except Dozzle are minor or patch releases within
+the same major version.
+
+| Role | Variable | From | To |
+| --- | --- | --- | --- |
+| `headscale` | `headscale_version` | 0.29.1 | 0.29.7 |
+| `loki` | `loki_version` | v3.7.3 | v3.7.10 |
+| `prometheus` | `prometheus_version` | v3.12.0 | v3.16.0 |
+| `prometheus` | `prometheus_pve_exporter_version` | 3.9.0 | 3.12.0 |
+| `node_exporter` | `node_exporter_version` | v1.11.1 | v1.12.1 |
+| `alloy` | `alloy_version` | v1.17.1 | v1.22.0 |
+| `gatus` | `gatus_version` | v5.36.0 | v5.38.0 |
+| `gatus` | `gatus_go_version` | 1.26.3 | 1.26.11 |
+| `otterwiki` | `otterwiki_version` | 2.20.6 | 2.26.3 |
+| `project_nomad` | `project_nomad_version` | 1.34.1 | 1.35.1 |
+| `homeassistant` | `homeassistant_foxess_version` | v1.15.0 | v1.16.0 |
+| `project_nomad` | `project_nomad_dozzle_image` | amir20/dozzle:v10.0 | amir20/dozzle:v11.4.3 |
+
+The Go toolchain stays on the 1.26 line, because Gatus v5.38.0's `go.mod`
+still declares go 1.26.3. The 1.26.11 patch release brings the standard
+library's security fixes into the built binary. NOMAD migrations only run
+forward, so once you upgrade to 1.35.1 you can't go back.
+
+Dozzle v10 to v11 needs no config change: the env vars, port and auth default
+are the same. Because NOMAD's Dozzle has no login, the role now also sets
+`DOZZLE_DISABLE_SETUP_WIZARD=true`, `DOZZLE_RELEASE_CHECK_MODE=manual`,
+`DOZZLE_IMAGE_CHECK_MODE=off` and `DOZZLE_NO_ANALYTICS=true`.
+
 ## [1.2.2] - 2026-11-16
 
 ### Fixed
