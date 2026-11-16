@@ -5,7 +5,7 @@
 
 # Pinned admin image. Upgrade by bumping this, never by stepping it down — the
 # admin's database migrations are forward-only.
-project_nomad_version: 1.34.1
+project_nomad_version: 1.35.1
 
 # Content (ZIMs, AI models, maps) is large. To keep it off the rootfs,
 # bind-mount storage in with lxc_overrides.mountpoints and point this at it.

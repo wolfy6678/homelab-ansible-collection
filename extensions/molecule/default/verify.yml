@@ -34,7 +34,7 @@
         that:
           - ne_link.stat.exists
           - ne_link.stat.islnk
-          - "'/opt/node_exporter/v1.11.1/' in ne_link.stat.lnk_target"
+          - "'/opt/node_exporter/v1.12.1/' in ne_link.stat.lnk_target"
         fail_msg: >-
           /usr/local/bin/node_exporter should be a symlink into
           /opt/node_exporter/<version>/ — that is what makes a version bump an

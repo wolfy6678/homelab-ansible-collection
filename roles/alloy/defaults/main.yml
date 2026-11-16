@@ -10,7 +10,7 @@
 #     "Homelab Logs" Grafana dashboard.
 # Installed from the upstream release zip (pinned) — same binary-download
 # pattern as loki/prometheus/gatus.
-alloy_version: v1.17.1
+alloy_version: v1.22.0
 alloy_user: alloy
 alloy_install_dir: /opt/alloy
 alloy_config_dir: /etc/alloy

@@ -26,7 +26,7 @@ it walks from a bare Proxmox host to a running homelab, and
 ## Installation
 
 ```bash
-ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.2.2
+ansible-galaxy collection install git+https://github.com/wolfy6678/homelab-ansible-collection.git,v1.3.0
 ```
 
 Or pin it in a `requirements.yml`:
@@ -35,12 +35,21 @@ Or pin it in a `requirements.yml`:
 collections:
   - name: https://github.com/wolfy6678/homelab-ansible-collection.git
     type: git
-    version: v1.2.2
+    version: v1.3.0
 ```
 
 ```bash
 ansible-galaxy collection install -r requirements.yml
 ```
+
+### Upgrading
+
+Before moving your pin to a newer tag, read every [CHANGELOG](CHANGELOG.md) entry
+between your version and the new one. Look for an **Upgrade notes** section: it
+lists anything to back up first, steps to run by hand, and upstream behaviour
+changes, and says how to roll back. Re-install with `--force` after changing
+the pin; `ansible-galaxy` doesn't re-fetch a collection that's already
+installed.
 
 ## Usage
 
@@ -127,7 +136,7 @@ straight from git:
 
 ```hcl
 module "lxc" {
-  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.2.2"
+  source   = "git::https://github.com/wolfy6678/homelab-ansible-collection.git//terraform/modules/lxc?ref=v1.3.0"
   for_each = var.lxcs
 
   hostname        = each.key

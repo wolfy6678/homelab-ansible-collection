@@ -75,6 +75,13 @@ services:
     environment:
       - DOZZLE_ENABLE_ACTIONS=false
       - DOZZLE_ENABLE_SHELL=false
+      # Dozzle has no login here, so nothing on its port should change state or
+      # phone home: no first-run setup wizard, no release/image update checks,
+      # no anonymous analytics (all on by default since v11).
+      - DOZZLE_DISABLE_SETUP_WIZARD=true
+      - DOZZLE_RELEASE_CHECK_MODE=manual
+      - DOZZLE_IMAGE_CHECK_MODE=off
+      - DOZZLE_NO_ANALYTICS=true
 {% endif %}
   mysql:
     image: {{ project_nomad_mysql_image }}
